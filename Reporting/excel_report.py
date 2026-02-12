@@ -15,7 +15,7 @@ def generate_report(session):
 
     for item in session.items:
         outcome = "UNKNOWN"
-
+#test
         if hasattr(item, "rep_call"):
             if item.rep_call.passed:
                 outcome = "PASSED"
