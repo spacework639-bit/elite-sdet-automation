@@ -18,7 +18,12 @@ jobs:
           ACCEPT_EULA: Y
         ports:
           - 1433:1433
-       
+        options: >-
+          --health-cmd "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       DB_SERVER: localhost
       DB_NAME: TravelXDB
@@ -35,26 +40,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Install ODBC Driver (CRITICAL)
-      - name: Install ODBC Driver 17
+      - name: Install ODBC Driver
         run: |
           sudo apt-get update
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
           sudo apt-get install -y unixodbc-dev
 
-      # Install SQLCMD Tools
       - name: Install SQLCMD Tools
         run: |
           sudo apt-get install -y mssql-tools
           echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
-          source ~/.bashrc
 
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
           playwright install --with-deps
 
-      # Wait until SQL Server responds
       - name: Wait for SQL Server
         run: |
           for i in {1..20}; do
@@ -63,12 +64,10 @@ jobs:
             sleep 5
           done
 
-      # Execute schema.sql
       - name: Initialize Database
-  run: |
-    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "IF DB_ID('TravelXDB') IS NULL CREATE DATABASE TravelXDB;"
-    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -d TravelXDB -i schema.sql
-
+        run: |
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "IF DB_ID('TravelXDB') IS NULL CREATE DATABASE TravelXDB;"
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -d TravelXDB -i schema.sql
 
       - name: Run Tests
         run: |
