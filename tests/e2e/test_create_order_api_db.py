@@ -2,6 +2,7 @@
 
 import pytest
 from core.failure_types import FailureType, Severity
+import time
 
 
 @pytest.mark.failure(
@@ -60,7 +61,7 @@ def test_create_order_success_reduces_inventory_and_creates_order(
     response = api_client.post(
         "/orders",
         payload,
-        headers={"Idempotency-Key": "test-success-123"}
+        headers={"Idempotency-Key": f"test-success-{int(time.time())}"}
     )
 
     # ---------- ASSERT : API ----------
@@ -146,7 +147,7 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
     response = api_client.post(
         "/orders",
         payload,
-        headers={"Idempotency-Key": "test-fail-123"}
+       headers={"Idempotency-Key": f"test-success-{int(time.time())}"}
     )
 
     # ---------- ASSERT : API ----------
@@ -189,7 +190,7 @@ def test_create_order_fails_for_invalid_product_id(api_client):
     response = api_client.post(
         "/orders",
         payload,
-        headers={"Idempotency-Key": "test-invalid-123"}
+        headers={"Idempotency-Key": f"test-success-{int(time.time())}"}
     )
 
     assert response.status_code == 404, "Expected 404 for invalid product"
