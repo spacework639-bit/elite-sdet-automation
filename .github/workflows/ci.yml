@@ -18,6 +18,11 @@ jobs:
           ACCEPT_EULA: Y
         ports:
           - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       DB_SERVER: localhost
@@ -35,24 +40,43 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 🔥 Install Microsoft ODBC Driver (REQUIRED for pyodbc on Linux)
-      - name: Install ODBC Driver 17 for SQL Server
+      # Install ODBC Driver (CRITICAL)
+      - name: Install ODBC Driver 17
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl apt-transport-https gnupg
-          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
-          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
-          sudo apt-get update
-          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
+          sudo apt-get install -y unixodbc-dev
 
-      - name: Install Python Dependencies
+      # Install SQLCMD Tools
+      - name: Install SQLCMD Tools
+        run: |
+          sudo apt-get install -y mssql-tools
+          echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+          source ~/.bashrc
+
+      - name: Install Dependencies
         run: |
           pip install -r requirements.txt
           playwright install --with-deps
 
-      - name: Wait for SQL Server to start
+      # Wait until SQL Server responds
+      - name: Wait for SQL Server
         run: |
-          sleep 25
+          for i in {1..20}; do
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "SELECT 1" && break
+            echo "Waiting for SQL Server..."
+            sleep 5
+          done
+
+      # Execute schema.sql
+      - name: Initialize Database Schema
+        run: |
+          /opt/mssql-tools/bin/sqlcmd \
+          -S localhost \
+          -U sa \
+          -P YourStrong!Passw0rd \
+          -d master \
+          -i schema.sql
 
       - name: Run Tests
         run: |
