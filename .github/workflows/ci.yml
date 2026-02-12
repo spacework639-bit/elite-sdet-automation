@@ -10,6 +10,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          SA_PASSWORD: YourStrong!Passw0rd
+          ACCEPT_EULA: Y
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd " /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q 'SELECT 1' "
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_SERVER: localhost
+      DB_NAME: master
+      DB_USER: sa
+      DB_PASSWORD: YourStrong!Passw0rd
+      APP_PORT: 8000
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
