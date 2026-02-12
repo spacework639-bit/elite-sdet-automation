@@ -10,20 +10,6 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2019-latest
-        env:
-          SA_PASSWORD: YourStrong!Passw0rd
-          ACCEPT_EULA: Y
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q 'SELECT 1'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       DB_SERVER: localhost
       DB_NAME: TravelXDB
@@ -40,34 +26,43 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install ODBC Driver
+      # Install ODBC + SQL tools
+      - name: Install SQL Dependencies
         run: |
           sudo apt-get update
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
           sudo apt-get install -y unixodbc-dev
-
-      - name: Install SQLCMD Tools
-        run: |
           sudo apt-get install -y mssql-tools
           echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
 
-      - name: Install Dependencies
+      # Start SQL Server manually
+      - name: Start SQL Server Container
         run: |
-          pip install -r requirements.txt
-          playwright install --with-deps
+          docker run -e "ACCEPT_EULA=Y" \
+                     -e "SA_PASSWORD=YourStrong!Passw0rd" \
+                     -p 1433:1433 \
+                     -d --name sql1 \
+                     mcr.microsoft.com/mssql/server:2019-latest
 
+      # Wait for SQL to be ready
       - name: Wait for SQL Server
         run: |
-          for i in {1..20}; do
+          for i in {1..30}; do
             /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "SELECT 1" && break
             echo "Waiting for SQL Server..."
             sleep 5
           done
 
+      # Create DB + Apply Schema
       - name: Initialize Database
         run: |
           /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "IF DB_ID('TravelXDB') IS NULL CREATE DATABASE TravelXDB;"
           /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -d TravelXDB -i schema.sql
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps
 
       - name: Run Tests
         run: |
