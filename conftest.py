@@ -204,5 +204,6 @@ def pytest_runtest_makereport(item, call):
 
             page.screenshot(path=screenshot_path, full_page=True)
 def pytest_sessionfinish(session, exitstatus):
-    from reports.excel_report import generate_report
+    from reporting.excel_report import generate_report
+
     generate_report(session)
