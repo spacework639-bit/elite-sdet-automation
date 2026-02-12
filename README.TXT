@@ -287,7 +287,7 @@ HOW TO RUN LOCALLY
 ====================================================================
 
 1. Create virtual environment:
-   python -m venv venv
+   python -m venv venv(you can create any name after venv )
 
 2. Activate:
    .\venv\Scripts\Activate.ps1
@@ -301,6 +301,8 @@ HOW TO RUN LOCALLY
 5. Run full suite:
    python -m pytest 
   python -m pytest -s (allow to print statement) 
+----------------------------------------------------------------------
+#python -c "import sys; print(sys.executable)"(To check weather your in active envinorment)
 
 Backend auto-starts.
 Backend auto-stops.
