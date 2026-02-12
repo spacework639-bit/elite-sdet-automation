@@ -1,0 +1,16 @@
+# Virtual environments
+venv/
+venv_test/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment file
+.env
+
+# Reports
+reports/
+
+# Playwright cache
+playwright-report/

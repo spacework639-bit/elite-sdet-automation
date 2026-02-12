@@ -1,0 +1,239 @@
+=====================================================================
+TEST EXECUTION COMMANDS — WHAT RUNS & WHAT IT VALIDATES
+=====================================================================
+
+PROJECT: E-commerce Order & Inventory QA Automation
+STACK: Pytest + FastAPI + SQL Server + Playwright
+
+=====================================================================
+0) START BACKEND (PREREQUISITE)
+=====================================================================
+
+COMMAND:
+>python -m uvicorn main:app --reload
+
+WHAT IT DOES:
+- Starts FastAPI backend
+- Enables live reload for development
+
+USE WHEN:
+- Before running any tests
+- After backend code changes
+
+---------------------------------------------------------------------
+1) DATABASE CONNECTIVITY & METADATA VALIDATION
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/db -v
+
+WHAT IT DOES:
+- Connects to SQL Server using env variables
+- Validates DB name, version, connectivity
+- Confirms tables and basic queries work
+- NO data modification (safe)
+
+EXPECTED OUTPUT:
+- All DB tests PASS
+
+USE WHEN:
+- New environment setup
+- DB credential changes
+- Before E2E execution
+
+---------------------------------------------------------------------
+2) CORE BUSINESS FLOW — API + DB E2E (ORDER → INVENTORY)
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/e2e -m e2e -v
+
+WHAT IT DOES:
+- Calls POST /orders API
+- Reads product price from DB
+- Validates inventory availability
+- Atomically reduces inventory
+- Inserts order row
+- Verifies via DB:
+  - Order exists
+  - Inventory reduced correctly
+- Uses real SQL transactions
+- Uses idempotency keys
+
+EXPECTED OUTPUT:
+- All E2E tests PASS
+- No overselling
+- No duplicate orders
+
+USE WHEN:
+- Business logic validation
+- Release regression
+- Revenue-impact checks
+
+---------------------------------------------------------------------
+3) IDEMPOTENCY VALIDATION (PAYMENT-SAFETY)
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/e2e/test_order_idempotency.py -m idempotency -v
+
+WHAT IT DOES:
+- Sends same Idempotency-Key multiple times
+- Confirms:
+  - Only ONE order is created
+  - Inventory reduced only once
+- DB validated for duplicate prevention
+
+EXPECTED OUTPUT:
+- PASS for same payload + same key
+- xfail for same key + different payload
+  (intentional business contract decision)
+
+USE WHEN:
+- Retry / timeout scenarios
+- Payment safety validation
+
+---------------------------------------------------------------------
+4) CONCURRENCY RACE-CONDITION TEST (STOCK = 1)
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/e2e/test_order_concurrency.py -v
+
+WHAT IT DOES:
+- Forces inventory stock = 1
+- Fires two parallel POST /orders requests
+- Uses different Idempotency-Keys
+- Validates:
+  - Exactly ONE request succeeds (200)
+  - Exactly ONE request fails (409)
+  - Only ONE order row exists in DB
+  - Inventory ends at 0 (never negative)
+
+EXPECTED OUTPUT:
+- Deterministic PASS
+- No flaky behavior
+
+USE WHEN:
+- Proving race-condition safety
+- Production readiness validation
+
+---------------------------------------------------------------------
+5) CONCURRENCY STRESS TEST (DEMAND > SUPPLY)
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/e2e/test_order_concurrency_stress.py -v
+
+WHAT IT DOES:
+- Forces inventory stock = 5
+- Fires 10 parallel order requests
+- Validates:
+  - 5 orders succeed
+  - 5 orders fail with 409
+  - Inventory ends at 0
+  - No overselling under load
+
+EXPECTED OUTPUT:
+- Stable PASS
+- Confirms transactional integrity under stress
+
+USE WHEN:
+- High-load scenarios
+- Architecture confidence checks
+
+---------------------------------------------------------------------
+6) UI → API → DB END-TO-END FLOW
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/ui/test_place_order_ui.py --headed -v
+
+WHAT IT DOES:
+- Opens Swagger UI via Playwright
+- Executes POST /orders through UI
+- Injects Idempotency-Key
+- Verifies API response
+- Queries DB to confirm:
+  - Order creation
+  - Inventory reduction
+
+EXPECTED OUTPUT:
+- UI test PASSES
+- Inventory decreases correctly
+
+USE WHEN:
+- Full-system integration proof
+- Demo to interviewers / stakeholders
+
+---------------------------------------------------------------------
+7) UI DEBUG MODE (SLOW MOTION)
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/ui/test_place_order_ui.py --headed --slowmo 500 -v
+
+WHAT IT DOES:
+- Same UI E2E flow
+- Runs slowly for visual debugging
+
+USE WHEN:
+- Debugging UI failures
+- Selector or timing issues
+
+---------------------------------------------------------------------
+8) FAILURE EVIDENCE (SCREENSHOT + EXCEL REPORT)
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest tests/ui/test_place_order_ui.py -v
+
+WHAT IT DOES ON FAILURE:
+- Captures screenshot automatically
+- Saves to: reports/screenshots/
+- Logs execution details to Excel:
+  reports/test_execution_<timestamp>.xlsx
+
+EXCEL CONTAINS:
+- Test name
+- Pass / Fail
+- Failure type
+- Severity
+- Release blocker flag
+
+USE WHEN:
+- CI runs
+- Audit / compliance
+- Stakeholder reporting
+
+---------------------------------------------------------------------
+9) FULL REGRESSION SUITE
+---------------------------------------------------------------------
+
+COMMAND:
+> python -m pytest -v
+
+WHAT IT DOES:
+- Runs ALL tests:
+  - DB
+  - API
+  - E2E
+  - Concurrency
+  - Stress
+  - UI
+- Generates Excel report
+- Captures screenshots on UI failures
+
+EXPECTED OUTPUT:
+- Clean PASS
+OR
+- Clear failure with DB-backed evidence
+
+USE WHEN:
+- Pre-release
+- CI/CD pipeline
+- Final sign-off
+
+=====================================================================
+END OF TEST EXECUTION COMMAND DOCUMENT
+=====================================================================
