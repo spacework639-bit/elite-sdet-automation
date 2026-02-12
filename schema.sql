@@ -1,6 +1,15 @@
 IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders;
 IF OBJECT_ID('inventory', 'U') IS NOT NULL DROP TABLE inventory;
 IF OBJECT_ID('products', 'U') IS NOT NULL DROP TABLE products;
+IF OBJECT_ID('playwrights', 'U') IS NOT NULL DROP TABLE playwrights;
+
+
+CREATE TABLE playwrights (
+    id INT IDENTITY PRIMARY KEY,
+    name NVARCHAR(255),
+    skill NVARCHAR(255)
+);
+
 
 CREATE TABLE products (
     id INT IDENTITY PRIMARY KEY,

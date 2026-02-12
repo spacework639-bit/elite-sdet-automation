@@ -23,7 +23,7 @@ def test_create_order_success_reduces_inventory_and_creates_order(
         3) Set order status to 'pending'
     """
 
-    product_id = 3    # product with sufficient stock
+    product_id = cursor.fetchone()[0]   # product with sufficient stock
     quantity = 4
 
     cursor = db_connection.cursor()
@@ -102,7 +102,7 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
     - Inventory must remain unchanged
     """
 
-    product_id = 7   # product used for low-stock testing
+    product_id = cursor.fetchone()[0]  # product used for low-stock testing
     cursor = db_connection.cursor()
 
     # ---------- ARRANGE ----------

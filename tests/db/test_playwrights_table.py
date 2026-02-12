@@ -6,7 +6,7 @@ def test_playwrights_insert_and_rollback(db_connection):
         INSERT INTO playwrights (name, skill)
         VALUES (?, ?)
         """,
-        "Test Use", "Playwright"
+        ("Test User", "Playwright")
     )
 
     cursor.execute(
@@ -15,11 +15,11 @@ def test_playwrights_insert_and_rollback(db_connection):
         FROM playwrights
         WHERE name = ?
         """,
-        "Test User"
+        ("Test User",)
     )
 
     row = cursor.fetchone()
 
     assert row is not None
-    assert row.name == "Test User"
-    assert row.skill == "Playwright"
+    assert row[0] == "Test User"
+    assert row[1] == "Playwright"

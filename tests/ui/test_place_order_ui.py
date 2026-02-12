@@ -6,7 +6,7 @@ from tests.ui.pages.products_page import ProductsPage
 @pytest.mark.e2e_ui
 @pytest.mark.regression
 def test_ui_order_success_reduces_inventory(page, db_connection):
-    product_id = 9
+    product_id = cursor.fetchone()[0]
     order_qty = 2
     idem_key = f"ui-ok-{int(time.time())}"
 
