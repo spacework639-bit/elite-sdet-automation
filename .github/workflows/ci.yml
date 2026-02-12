@@ -21,7 +21,7 @@ jobs:
        
     env:
       DB_SERVER: localhost
-      DB_NAME: master
+      DB_NAME: TravelXDB
       DB_USER: sa
       DB_PASSWORD: YourStrong!Passw0rd
       APP_PORT: 8000
@@ -64,14 +64,11 @@ jobs:
           done
 
       # Execute schema.sql
-      - name: Initialize Database Schema
-        run: |
-          /opt/mssql-tools/bin/sqlcmd \
-          -S localhost \
-          -U sa \
-          -P YourStrong!Passw0rd \
-          -d master \
-          -i schema.sql
+      - name: Initialize Database
+  run: |
+    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "IF DB_ID('TravelXDB') IS NULL CREATE DATABASE TravelXDB;"
+    /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -d TravelXDB -i schema.sql
+
 
       - name: Run Tests
         run: |
