@@ -12,7 +12,7 @@ The goal is to protect revenue, data integrity, and system reliability by valida
 - Inventory integrity
 - Idempotency (retry safety)
 - Concurrency (race-condition safety)
-- Data invariants
+- Data invariants  
 - Failure impact classification
 - End-to-end system integration
 
@@ -299,7 +299,8 @@ HOW TO RUN LOCALLY
    playwright install
 
 5. Run full suite:
-   python -m pytest
+   python -m pytest 
+  python -m pytest -s (allow to print statement) 
 
 Backend auto-starts.
 Backend auto-stops.

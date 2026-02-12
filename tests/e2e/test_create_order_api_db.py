@@ -9,7 +9,6 @@ from core.failure_types import FailureType, Severity
     severity=Severity.MEDIUM,
     release_blocker=True
 )
-
 @pytest.mark.e2e
 def test_create_order_success_reduces_inventory_and_creates_order(
     api_client,
@@ -23,10 +22,21 @@ def test_create_order_success_reduces_inventory_and_creates_order(
         3) Set order status to 'pending'
     """
 
-    product_id = cursor.fetchone()[0]   # product with sufficient stock
-    quantity = 4
-
     cursor = db_connection.cursor()
+
+    # 🔎 Dynamically pick a product with stock >= 5
+    cursor.execute("""
+        SELECT TOP 1 p.id
+        FROM products p
+        JOIN inventory i ON p.id = i.product_id
+        WHERE i.stock >= 5
+        ORDER BY p.id
+    """)
+    row = cursor.fetchone()
+    assert row is not None, "Precondition failed: No product with sufficient stock found"
+
+    product_id = row[0]
+    quantity = 4
 
     # ---------- ARRANGE ----------
     cursor.execute(
@@ -47,7 +57,11 @@ def test_create_order_success_reduces_inventory_and_creates_order(
     }
 
     # ---------- ACT ----------
-    response = api_client.post("/orders", payload)
+    response = api_client.post(
+        "/orders",
+        payload,
+        headers={"Idempotency-Key": "test-success-123"}
+    )
 
     # ---------- ASSERT : API ----------
     assert response.status_code == 200, "Order API should succeed"
@@ -102,8 +116,19 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
     - Inventory must remain unchanged
     """
 
-    product_id = cursor.fetchone()[0]  # product used for low-stock testing
     cursor = db_connection.cursor()
+
+    # 🔎 Pick any product dynamically
+    cursor.execute("""
+        SELECT TOP 1 p.id
+        FROM products p
+        JOIN inventory i ON p.id = i.product_id
+        ORDER BY p.id
+    """)
+    row = cursor.fetchone()
+    assert row is not None, "Precondition failed: No product found"
+
+    product_id = row[0]
 
     # ---------- ARRANGE ----------
     cursor.execute(
@@ -118,7 +143,11 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
     }
 
     # ---------- ACT ----------
-    response = api_client.post("/orders", payload)
+    response = api_client.post(
+        "/orders",
+        payload,
+        headers={"Idempotency-Key": "test-fail-123"}
+    )
 
     # ---------- ASSERT : API ----------
     assert response.status_code == 409, (
@@ -139,26 +168,29 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
         "Inventory should not change when order fails"
     )
 
+
 @pytest.mark.failure(
     type=FailureType.VALIDATION,
     severity=Severity.MEDIUM,
     release_blocker=False
 )
 @pytest.mark.e2e
-def test_create_order_fails_for_invalid_product_id(
-    api_client
-):
+def test_create_order_fails_for_invalid_product_id(api_client):
     """
     Business Rule:
     - Order must fail if product_id does not exist
     """
 
     payload = {
-        "product_id": 999999,  # non-existent product
+        "product_id": 999999,
         "quantity": 1
     }
 
-    response = api_client.post("/orders", payload)
+    response = api_client.post(
+        "/orders",
+        payload,
+        headers={"Idempotency-Key": "test-invalid-123"}
+    )
 
     assert response.status_code == 404, "Expected 404 for invalid product"
     assert "Product not found" in response.json().get("detail", ""), (
