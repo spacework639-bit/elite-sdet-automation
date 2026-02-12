@@ -35,14 +35,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      # 🔥 Install Microsoft ODBC Driver (REQUIRED for pyodbc on Linux)
+      - name: Install ODBC Driver 17 for SQL Server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl apt-transport-https gnupg
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
+
+      - name: Install Python Dependencies
         run: |
           pip install -r requirements.txt
           playwright install --with-deps
 
-      - name: Wait for SQL Server
+      - name: Wait for SQL Server to start
         run: |
-          sleep 20
+          sleep 25
 
       - name: Run Tests
         run: |
