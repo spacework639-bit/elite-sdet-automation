@@ -1,6 +1,7 @@
 import pytest
 import time
 from tests.ui.pages.products_page import ProductsPage
+import logging
 
 
 @pytest.mark.e2e_ui
@@ -20,6 +21,7 @@ def test_ui_order_success_reduces_inventory(page, db_connection):
     assert row is not None, "Precondition failed: No product with sufficient stock"
 
     product_id = row[0]
+    logging.info(f"Selected product_id={product_id} for success test")
     order_qty = 2
     idem_key = f"ui-ok-{int(time.time())}"
 
@@ -29,6 +31,8 @@ def test_ui_order_success_reduces_inventory(page, db_connection):
         (product_id,)
     )
     before_stock = cursor.fetchone()[0]
+    logging.info(f"Stock before order: {before_stock}")
+
 
     # ---------- UI ACTION ----------
     ui = ProductsPage(page)
@@ -41,6 +45,7 @@ def test_ui_order_success_reduces_inventory(page, db_connection):
         (product_id,)
     )
     after_stock = cursor.fetchone()[0]
+    logging.info(f"Stock before order: {after_stock}")
 
     assert after_stock == before_stock - order_qty, \
         "Inventory was not reduced correctly via UI order"

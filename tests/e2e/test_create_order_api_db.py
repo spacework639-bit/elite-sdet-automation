@@ -3,6 +3,7 @@
 import pytest
 from core.failure_types import FailureType, Severity
 import time
+import logging
 
 
 @pytest.mark.failure(
@@ -38,7 +39,8 @@ def test_create_order_success_reduces_inventory_and_creates_order(
 
     product_id = row[0]
     quantity = 4
-
+    
+    logging.info(f"Selected product_id={product_id} for success test")
     # ---------- ARRANGE ----------
     cursor.execute(
         "SELECT stock FROM inventory WHERE product_id = ?",
@@ -48,6 +50,8 @@ def test_create_order_success_reduces_inventory_and_creates_order(
     assert row is not None, "Precondition failed: inventory record missing"
 
     before_stock = row[0]
+    logging.info(f"Stock before order: {before_stock}")
+
     assert before_stock >= quantity, (
         f"Precondition failed: stock {before_stock} < quantity {quantity}"
     )
@@ -57,11 +61,11 @@ def test_create_order_success_reduces_inventory_and_creates_order(
         "quantity": quantity
     }
 
-    # ---------- ACT ----------
+    # ---------- ACT ----------s
     response = api_client.post(
         "/orders",
         payload,
-        headers={"Idempotency-Key": f"test-success-{int(time.time())}"}
+      headers = {"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
     )
 
     # ---------- ASSERT : API ----------
@@ -80,6 +84,8 @@ def test_create_order_success_reduces_inventory_and_creates_order(
         (product_id,)
     )
     after_stock = cursor.fetchone()[0]
+    logging.info(f"Stock after order: {after_stock}")
+
 
     assert after_stock == before_stock - quantity, (
         "Inventory was not reduced correctly"
@@ -130,6 +136,8 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
     assert row is not None, "Precondition failed: No product found"
 
     product_id = row[0]
+    logging.info(f"Selected product_id={product_id} for success test")
+    
 
     # ---------- ARRANGE ----------
     cursor.execute(
@@ -147,7 +155,7 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
     response = api_client.post(
         "/orders",
         payload,
-       headers={"Idempotency-Key": f"test-success-{int(time.time())}"}
+        headers = {"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
     )
 
     # ---------- ASSERT : API ----------
@@ -164,6 +172,7 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
         (product_id,)
     )
     stock_after = cursor.fetchone()[0]
+    logging.info(f"Stock after order: {stock_after}")
 
     assert stock_after == 1, (
         "Inventory should not change when order fails"
@@ -190,7 +199,7 @@ def test_create_order_fails_for_invalid_product_id(api_client):
     response = api_client.post(
         "/orders",
         payload,
-        headers={"Idempotency-Key": f"test-success-{int(time.time())}"}
+        headers={"Idempotency-Key": "test-invalid-123"}
     )
 
     assert response.status_code == 404, "Expected 404 for invalid product"
