@@ -64,18 +64,18 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps
 
-      - name: Run Tests with Reports
-        run: |
-          mkdir -p reports
-          python -m pytest \
-	    -k "not ui" \
-            --junitxml=reports/report.xml \
-            --html=reports/report.html \
-            --self-contained-html
-	    --cov=backend \
-            --cov-report=xml:reports/coverage.xml \
-            --cov-report=html:reports/coverage-html
-	    --cov-fail-under=80
+      - name: Run API & DB Tests with Coverage
+  	run: |
+    	mkdir -p reports
+   	 python -m pytest \
+      -k "not ui" \
+      --junitxml=reports/report.xml \
+      --html=reports/report.html \
+      --self-contained-html \
+      --cov=backend \
+      --cov-report=xml:reports/coverage.xml \
+      --cov-report=html:reports/coverage-html \
+      --cov-fail-under=80
 
 
       - name: Upload Test Reports
