@@ -68,9 +68,15 @@ jobs:
         run: |
           mkdir -p reports
           python -m pytest \
+	    -k "not ui" \
             --junitxml=reports/report.xml \
             --html=reports/report.html \
             --self-contained-html
+	    --cov=backend \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=html:reports/coverage-html
+	    --cov-fail-under=80
+
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4

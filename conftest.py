@@ -7,6 +7,9 @@ import subprocess
 import time
 import requests
 from dotenv import load_dotenv
+from fastapi.testclient import TestClient
+from backend.main import app
+
 
 load_dotenv()
 import logging
@@ -17,40 +20,7 @@ logging.basicConfig(
 )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def start_backend():
 
-    port = os.getenv("APP_PORT", "8000")
-
-    process = subprocess.Popen(
-        [
-            "python", "-m", "uvicorn",
-            "backend.main:app",
-            "--host", "127.0.0.1",
-            "--port", port
-        ]
-    )
-
-    # Wait for server to be ready
-    for _ in range(20):
-        try:
-            r = requests.get(f"http://127.0.0.1:{port}/openapi.json")
-            if r.status_code == 200:
-                print("Backend started successfully.")
-                break
-        except Exception:
-            pass
-        time.sleep(1)
-    else:
-        process.terminate()
-        raise RuntimeError("Backend did not start.")
-
-    yield
-
-    # Teardown
-    process.terminate()
-    process.wait()
-    print("Backend stopped.")
 
 
 # -------------------------------------------------
@@ -87,7 +57,8 @@ def db_connection():
 # -------------------------------------------------
 @pytest.fixture(scope="session")
 def api_client():
-    return ApiClient("http://127.0.0.1:8000")
+    return TestClient(app)
+
 
 
 # -------------------------------------------------

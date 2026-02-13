@@ -63,10 +63,10 @@ def test_create_order_success_reduces_inventory_and_creates_order(
 
     # ---------- ACT ----------s
     response = api_client.post(
-        "/orders",
-        payload,
-      headers = {"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
-    )
+    "/orders",
+    json=payload,
+    headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"})
+
 
     # ---------- ASSERT : API ----------
     assert response.status_code == 200, "Order API should succeed"
@@ -153,10 +153,11 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
 
     # ---------- ACT ----------
     response = api_client.post(
-        "/orders",
-        payload,
-        headers = {"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
+    "/orders",
+    json=payload,
+    headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
     )
+
 
     # ---------- ASSERT : API ----------
     assert response.status_code == 409, (
@@ -197,10 +198,11 @@ def test_create_order_fails_for_invalid_product_id(api_client):
     }
 
     response = api_client.post(
-        "/orders",
-        payload,
-        headers={"Idempotency-Key": "test-invalid-123"}
+    "/orders",
+    json=payload,
+    headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
     )
+
 
     assert response.status_code == 404, "Expected 404 for invalid product"
     assert "Product not found" in response.json().get("detail", ""), (

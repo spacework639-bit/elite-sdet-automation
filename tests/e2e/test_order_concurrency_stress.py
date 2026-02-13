@@ -52,7 +52,7 @@ def test_concurrent_orders_stress(
     ]
 
     def place_order(h):
-        return api_client.post("/orders", payload, headers=h)
+        return api_client.post("/orders", json=payload, headers=h)
 
     # -------------------------------------------------
     # PARALLEL EXECUTION (10 REQUESTS)

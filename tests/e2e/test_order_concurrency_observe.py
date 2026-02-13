@@ -39,7 +39,7 @@ def test_concurrent_orders_observe(
     headers_2 = {"Idempotency-Key": "observe-key-2"}
 
     def place_order(headers):
-        response = api_client.post("/orders", payload, headers=headers)
+        response = api_client.post("/orders", json=payload, headers=headers)
         print(
             f"[{headers['Idempotency-Key']}] "
             f"STATUS={response.status_code} BODY={response.json()}"

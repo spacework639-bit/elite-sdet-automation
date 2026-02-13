@@ -35,12 +35,12 @@ def test_create_order_is_idempotent(
     }
 
     # First request
-    response_1 = api_client.post("/orders", payload, headers=headers)
+    response_1 = api_client.post("/orders", json=payload, headers=headers)
     assert response_1.status_code == 200
     order_id_1 = response_1.json()["order_id"]
 
     # Second request (same key)
-    response_2 = api_client.post("/orders", payload, headers=headers)
+    response_2 = api_client.post("/orders", json=payload, headers=headers)
     assert response_2.status_code == 200
     order_id_2 = response_2.json()["order_id"]
 

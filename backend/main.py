@@ -86,7 +86,7 @@ def create_order(
         alias="Idempotency-Key",
         title="Idempotency-Key",
         description="Unique key to ensure the request is idempotent (prevents duplicate orders if retried)",
-        example="idem-test-123"
+        examples="idem-test-123"
     )
 ):
     product_id = payload.get("product_id")
