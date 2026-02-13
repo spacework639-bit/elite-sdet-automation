@@ -26,7 +26,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Install ODBC + SQL tools
       - name: Install SQL Dependencies
         run: |
           sudo apt-get update
@@ -35,7 +34,6 @@ jobs:
           sudo apt-get install -y mssql-tools
           echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
 
-      # Start SQL Server manually
       - name: Start SQL Server Container
         run: |
           docker run -e "ACCEPT_EULA=Y" \
@@ -44,7 +42,6 @@ jobs:
                      -d --name sql1 \
                      mcr.microsoft.com/mssql/server:2019-latest
 
-      # Wait for SQL to be ready
       - name: Wait for SQL Server
         run: |
           for i in {1..30}; do
@@ -53,7 +50,6 @@ jobs:
             sleep 5
           done
 
-      # Create DB + Apply Schema
       - name: Initialize Database
         run: |
           /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q "IF DB_ID('TravelXDB') IS NULL CREATE DATABASE TravelXDB;"
@@ -65,18 +61,9 @@ jobs:
           playwright install --with-deps
 
       - name: Run API & DB Tests with Coverage
-  	run: |
-    	mkdir -p reports
-   	 python -m pytest -k "not ui" --junitxml=reports/report.xml --html=reports/report.html --self-contained-html --cov=backend --cov-	report=xml:reports/coverage.xml --cov-report=html:reports/coverage-html --cov-fail-under=80 \
-   
-      --junitxml=reports/report.xml \
-      --html=reports/report.html \
-      --self-contained-html \
-      --cov=backend \
-      --cov-report=xml:reports/coverage.xml \
-      --cov-report=html:reports/coverage-html \
-      --cov-fail-under=80
-
+        run: |
+          mkdir -p reports
+          python -m pytest -k "not ui" --junitxml=reports/report.xml --html=reports/report.html --self-contained-html --cov=backend --cov-report=xml:reports/coverage.xml --cov-report=html:reports/coverage-html --cov-fail-under=80
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
