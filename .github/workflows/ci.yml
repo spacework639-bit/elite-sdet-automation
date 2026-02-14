@@ -135,3 +135,11 @@ jobs:
       - name: Run UI Tests
         run: |
           python -m pytest -m e2e_ui
+
+      - name: Upload UI Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ui-test-reports
+        path: reports/
+
