@@ -61,6 +61,10 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps
 
+      - name: Run Ruff Lint
+        run: |
+          ruff check .
+
       - name: Run API & DB Tests with Coverage
         run: |
           mkdir -p reports
