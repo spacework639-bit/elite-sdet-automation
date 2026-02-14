@@ -1,4 +1,4 @@
-IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders;
+﻿IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders;
 IF OBJECT_ID('inventory', 'U') IS NOT NULL DROP TABLE inventory;
 IF OBJECT_ID('products', 'U') IS NOT NULL DROP TABLE products;
 IF OBJECT_ID('playwrights', 'U') IS NOT NULL DROP TABLE playwrights;
@@ -28,17 +28,19 @@ CREATE TABLE inventory (
 
 CREATE TABLE orders (
     order_id INT IDENTITY PRIMARY KEY,
-    user_id INT,
-    vendor_id INT,
-    product_type NVARCHAR(100),
-    product_id INT NOT NULL,
-    total_amount DECIMAL(10,2),
-    status NVARCHAR(50),
+    user_id INT NOT NULL,
+    vendor_id INT NOT NULL,
+    product_id INT NOT NULL,				   
+    product_type NVARCHAR(100) NOT NULL,	 
+    quantity INT NOT NULL,                       -- 🔥 Added
+    total_amount DECIMAL(10,2) NOT NULL,
+    status NVARCHAR(50) NOT NULL,
     created_at DATETIME DEFAULT GETDATE(),
-    idempotency_key NVARCHAR(255),
+    updated_at DATETIME NULL,                    -- 🔥 Future-proofing
+    idempotency_key NVARCHAR(255) UNIQUE,        -- 🔥 Prevent duplicates at DB level
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
-
+  --test
 -- Seed initial data
 INSERT INTO products (name, price, category)
 VALUES 
@@ -48,3 +50,7 @@ VALUES
 
 INSERT INTO inventory (product_id, stock)
 SELECT id, 100 FROM products;
+
+
+
+
