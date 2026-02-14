@@ -585,6 +585,8 @@ Total Project → 84%
 python -m pytest --cov=backend --cov-report=term-missing -k "not ui"(to print missing lines never executed)
 
 python -m pytest --cov=backend --cov-fail-under=80 -k "not ui"(to test coverage percentage)
+
+python -m pytest --cov=backend
 note:we are using not ui bcz we are ignoring ui testing here
 
 

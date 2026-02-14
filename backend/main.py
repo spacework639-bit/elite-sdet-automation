@@ -1,14 +1,11 @@
 from dotenv import load_dotenv
-
-
 from fastapi import FastAPI, HTTPException, Request, Header
 from typing import Dict
 from .db import get_connection
+
 load_dotenv()
 
-
 app = FastAPI()
-
 
 # -------------------------------------------------
 # PLAYWRIGHTS APIs
@@ -60,6 +57,9 @@ def get_products():
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT id, name, price, category FROM products")
+        cursor.execute("SELECT DB_NAME()")
+        print("APP DB:", cursor.fetchone()[0])
+
         rows = cursor.fetchall()
         return [
             {
@@ -82,13 +82,7 @@ def get_products():
 def create_order(
     payload: Dict,
     request: Request,
-    idempotency_key: str = Header(
-        ...,
-        alias="Idempotency-Key",
-        title="Idempotency-Key",
-        description="Unique key to ensure the request is idempotent (prevents duplicate orders if retried)",
-        examples="idem-test-123"
-    )
+    idempotency_key: str = Header(..., alias="Idempotency-Key")
 ):
     product_id = payload.get("product_id")
     quantity = payload.get("quantity")
@@ -105,17 +99,15 @@ def create_order(
     if not isinstance(user_id, int) or not isinstance(vendor_id, int):
         raise HTTPException(status_code=400, detail="user_id and vendor_id must be integers")
 
-    # No need to check idempotency_key == None anymore — FastAPI already enforces it
-    # (because we used Header(...) with ... which means required)
-
     conn = get_connection()
 
     try:
         cursor = conn.cursor()
         conn.autocommit = False
+        cursor.execute("SELECT DB_NAME()")
+        print("PYTEST CONNECTED DB:", cursor.fetchone()[0])
 
-        # ---------- PRODUCT ----------
-        # STEP 4: check existing order (PASTE HERE)
+        # ---------- Idempotency Check ----------
         cursor.execute(
             """
             SELECT order_id, total_amount
@@ -125,6 +117,7 @@ def create_order(
             (idempotency_key,)
         )
         existing_order = cursor.fetchone()
+
         if existing_order:
             return {
                 "status": "order_already_created",
@@ -132,39 +125,31 @@ def create_order(
                 "total_amount": float(existing_order[1])
             }
 
-        # EXISTING CODE CONTINUES BELOW
-    
+        # ---------- Get Product ----------
         cursor.execute("SELECT price FROM products WHERE id = ?", (product_id,))
         product = cursor.fetchone()
 
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        if product[0] is None:
-            raise HTTPException(status_code=500, detail="Product price is NULL")
-
         price = float(product[0])
         total_amount = price * quantity
 
-        # ---------- INVENTORY (LOCK ROW) ----------
-        # ---------- ATOMIC INVENTORY UPDATE ----------
+        # ---------- Atomic Inventory Deduction ----------
         cursor.execute(
-        """
-        UPDATE inventory
-        SET stock = stock - ?
-        WHERE product_id = ?
-        AND stock >= ?
-        """,
-        (quantity, product_id, quantity)
-        )   
+            """
+            UPDATE inventory
+            SET stock = stock - ?
+            WHERE product_id = ?
+            AND stock >= ?
+            """,
+            (quantity, product_id, quantity)
+        )
+
         if cursor.rowcount == 0:
-            raise HTTPException(
-                status_code=409,
-                detail="Insufficient stock"
-    )
+            raise HTTPException(status_code=409, detail="Insufficient stock")
 
-
-        # ---------- INSERT ORDER (CORRECT SQL SERVER PATTERN) ----------
+        # ---------- Insert Order ----------
         cursor.execute(
             """
             INSERT INTO orders (
@@ -172,19 +157,21 @@ def create_order(
                 vendor_id,
                 product_type,
                 product_id,
+                quantity,
                 total_amount,
                 status,
                 idempotency_key,
                 created_at
             )
             OUTPUT INSERTED.order_id
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
                 user_id,
                 vendor_id,
                 "HERBAL",
                 product_id,
+                quantity,
                 total_amount,
                 "pending",
                 idempotency_key
@@ -206,5 +193,109 @@ def create_order(
     except Exception:
         conn.rollback()
         raise HTTPException(status_code=500, detail="Order creation failed")
+    finally:
+        conn.close()
+
+
+@app.get("/orders/{order_id}")
+def get_order(order_id: int):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT 
+                order_id,
+                user_id,
+                vendor_id,
+                product_id,
+                quantity,
+                total_amount,
+                status,
+                created_at
+            FROM orders
+            WHERE order_id = ?
+            """,
+            (order_id,)
+        )
+
+        row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        return {
+            "order_id": row[0],
+            "user_id": row[1],
+            "vendor_id": row[2],
+            "product_id": row[3],
+            "quantity": row[4],
+            "total_amount": float(row[5]),
+            "status": row[6],
+            "created_at": row[7]
+        }
+
+    finally:
+        conn.close()
+
+
+@app.post("/orders/{order_id}/cancel")
+def cancel_order(order_id: int):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+        conn.autocommit = False
+
+        # ---- Fetch order ----
+        cursor.execute(
+            "SELECT product_id, quantity, status FROM orders WHERE order_id = ?",
+            (order_id,)
+        )
+        order = cursor.fetchone()
+
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        product_id, quantity, status = order
+
+        # ---- Atomic state transition ----
+        cursor.execute(
+            """
+            UPDATE orders
+            SET status = 'cancelled'
+            WHERE order_id = ?
+            AND status = 'pending'
+            """,
+            (order_id,)
+        )
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=409, detail="Order cannot be cancelled")
+
+        # ---- Restore inventory ----
+        cursor.execute(
+            """
+            UPDATE inventory
+            SET stock = stock + ?
+            WHERE product_id = ?
+            """,
+            (quantity, product_id)
+        )
+
+        conn.commit()
+
+        return {
+            "status": "order_cancelled",
+            "order_id": order_id
+        }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Order cancellation failed")
     finally:
         conn.close()

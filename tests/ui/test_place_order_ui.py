@@ -45,7 +45,7 @@ def test_ui_order_success_reduces_inventory(page, db_connection):
         (product_id,)
     )
     after_stock = cursor.fetchone()[0]
-    logging.info(f"Stock before order: {after_stock}")
+    logging.info(f"Stock after order: {after_stock}")
 
     assert after_stock == before_stock - order_qty, \
         "Inventory was not reduced correctly via UI order"
@@ -76,7 +76,6 @@ def test_ui_order_product_not_found(page):
 # ---------------------------------------------------------
 # NEGATIVE SCENARIO 2 – INSUFFICIENT STOCK
 # ---------------------------------------------------------
-
 @pytest.mark.e2e_ui
 @pytest.mark.regression
 @pytest.mark.xfail(
@@ -86,7 +85,6 @@ def test_ui_order_product_not_found(page):
 def test_ui_order_insufficient_stock(page, db_connection):
     cursor = db_connection.cursor()
 
-    # 🔎 Get a valid product
     cursor.execute("""
         SELECT TOP 1 p.id
         FROM products p
@@ -98,18 +96,34 @@ def test_ui_order_insufficient_stock(page, db_connection):
 
     product_id = row[0]
 
-    # Force low stock
+    # ---------- SAVE ORIGINAL ----------
     cursor.execute(
-        "UPDATE inventory SET stock = 1 WHERE product_id = ?",
+        "SELECT stock FROM inventory WHERE product_id = ?",
         (product_id,)
     )
-    db_connection.commit()
+    original_stock = cursor.fetchone()[0]
 
-    order_qty = 5
-    idem_key = f"ui-stock-{int(time.time())}"
+    try:
+        # Force low stock
+        cursor.execute(
+            "UPDATE inventory SET stock = 1 WHERE product_id = ?",
+            (product_id,)
+        )
+        db_connection.commit()
 
-    ui = ProductsPage(page)
-    ui.open_orders_api()
-    ui.place_order_via_swagger(product_id, order_qty, idem_key)
+        order_qty = 5
+        idem_key = f"ui-stock-{int(time.time())}"
 
-    pytest.fail("Insufficient stock scenario triggered")
+        ui = ProductsPage(page)
+        ui.open_orders_api()
+        ui.place_order_via_swagger(product_id, order_qty, idem_key)
+
+        pytest.fail("Insufficient stock scenario triggered")
+
+    finally:
+        # ---------- RESTORE ----------
+        cursor.execute(
+            "UPDATE inventory SET stock = ? WHERE product_id = ?",
+            (original_stock, product_id)
+        )
+        db_connection.commit()

@@ -105,6 +105,8 @@ def test_create_order_success_reduces_inventory_and_creates_order(
     assert order_row is not None, "Order row not created in database"
     assert order_row[0] == product_id, "Incorrect product_id in order"
     assert order_row[1] == "pending", "Order status must be 'pending'"
+    print("SUCCESS TEST USING PRODUCT:", product_id)
+
 
 
 @pytest.mark.e2e
@@ -130,55 +132,67 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
         SELECT TOP 1 p.id
         FROM products p
         JOIN inventory i ON p.id = i.product_id
-        ORDER BY p.id
+        ORDER BY p.id desc
     """)
     row = cursor.fetchone()
     assert row is not None, "Precondition failed: No product found"
 
     product_id = row[0]
-    logging.info(f"Selected product_id={product_id} for success test")
+    logging.info(f"Selected product_id={product_id} for insufficient and inventory unchanged test")
     
 
-    # ---------- ARRANGE ----------
+# ---------- ARRANGE ----------
     cursor.execute(
-        "UPDATE inventory SET stock = 1 WHERE product_id = ?",
-        (product_id,)
+    "SELECT stock FROM inventory WHERE product_id = ?",
+    (product_id,)
     )
-    db_connection.commit()
-
-    payload = {
-        "product_id": product_id,
-        "quantity": 2
-    }
-
-    # ---------- ACT ----------
-    response = api_client.post(
-    "/orders",
-    json=payload,
-    headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
-    )
+    original_stock = cursor.fetchone()[0]
+    try:
+        cursor.execute("UPDATE inventory SET stock = 1 WHERE product_id = ?",(product_id,))
+        db_connection.commit()
 
 
-    # ---------- ASSERT : API ----------
-    assert response.status_code == 409, (
-        "Expected 409 Conflict for insufficient stock"
-    )
-    assert "Insufficient stock" in response.json().get("detail", ""), (
-        "Missing insufficient stock error message"
-    )
 
-    # ---------- ASSERT : INVENTORY ----------
-    cursor.execute(
-        "SELECT stock FROM inventory WHERE product_id = ?",
-        (product_id,)
-    )
-    stock_after = cursor.fetchone()[0]
-    logging.info(f"Stock after order: {stock_after}")
+        payload = {
+            "product_id": product_id,
+            "quantity": 2
+        }
 
-    assert stock_after == 1, (
-        "Inventory should not change when order fails"
-    )
+        # ---------- ACT ----------
+        response = api_client.post(
+        "/orders",
+        json=payload,
+        headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
+        )
 
+
+        # ---------- ASSERT : API ----------
+        assert response.status_code == 409, (
+            "Expected 409 Conflict for insufficient stock"
+        )
+        assert "Insufficient stock" in response.json().get("detail", ""), (
+            "Missing insufficient stock error message"
+        )
+
+        # ---------- ASSERT : INVENTORY ----------
+        cursor.execute(
+            "SELECT stock FROM inventory WHERE product_id = ?",
+            (product_id,)
+        )
+        stock_after = cursor.fetchone()[0]
+        logging.info(f"Stock after order: {stock_after}")
+
+        assert stock_after == 1, (
+            "Inventory should not change when order fails"
+        )
+    finally:
+        cursor.execute(
+            "UPDATE inventory SET stock = ? WHERE product_id = ?",
+            (original_stock, product_id)
+        )
+        print("INSUFFICIENT TEST USING PRODUCT:", product_id)
+        
+        db_connection.commit()
 
 @pytest.mark.failure(
     type=FailureType.VALIDATION,
