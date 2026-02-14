@@ -1,5 +1,4 @@
 import json
-import time
 
 class ProductsPage:
     def __init__(self, page):

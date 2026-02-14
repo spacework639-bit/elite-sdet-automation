@@ -1,5 +1,4 @@
 import pytest
-import os
 from backend.db import _build_connection_string, db_session
 
 
@@ -25,5 +24,5 @@ def test_db_session_rolls_back_on_exception():
     """
 
     with pytest.raises(Exception):
-        with db_session() as conn:
+        with db_session():
             raise Exception("Simulated failure")

@@ -2,17 +2,14 @@ import os
 import pytest
 import pyodbc
 from datetime import datetime
-from core.api_client import ApiClient
-import subprocess
-import time
-import requests
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from backend.main import app
-
+from core.excel_reporter import ExcelReporter
+import logging
 
 load_dotenv()
-import logging
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -120,41 +117,9 @@ def test_product(db_connection):
 # -------------------------------------------------
 # PYTEST → EXCEL REPORT HOOK (CONNECTION)
 # -------------------------------------------------
-from core.excel_reporter import ExcelReporter
+
 
 reporter = ExcelReporter()
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
-    report = outcome.get_result()
-
-    # Only care about test execution phase
-    if report.when != "call":
-        return
-
-    # -------------------------
-    # EXCEL REPORTING
-    # -------------------------
-    failure_marker = item.get_closest_marker("failure")
-    status = "passed" if report.passed else "failed"
-
-    if failure_marker:
-        reporter.record(
-            test_name=item.name,
-            outcome=status,
-            failure_type=str(failure_marker.kwargs.get("type")),
-            severity=str(failure_marker.kwargs.get("severity")),
-            release_blocker=failure_marker.kwargs.get("release_blocker"),
-        )
-    else:
-        reporter.record(
-            test_name=item.name,
-            outcome=status,
-            failure_type=None,
-            severity=None,
-            release_blocker=False,
-        )
 
     # -------------------------
     # SCREENSHOT ON FAILURE

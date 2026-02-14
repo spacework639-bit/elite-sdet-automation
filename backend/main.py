@@ -1,9 +1,10 @@
 from dotenv import load_dotenv
-load_dotenv()
+
 
 from fastapi import FastAPI, HTTPException, Request, Header
 from typing import Dict
 from .db import get_connection
+load_dotenv()
 
 
 app = FastAPI()
