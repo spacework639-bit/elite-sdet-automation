@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, Request, Header
 from typing import Dict
 from .db import get_connection
 from fastapi import Query
+import pyodbc
 
 load_dotenv()
 
@@ -435,44 +436,82 @@ def update_product_price(product_id: int, payload: Dict):
         conn.close()
 @app.delete("/products/{product_id}")
 def delete_product(product_id: int):
-    """
-    Delete product only if no orders exist.
-    """
-
     conn = get_connection()
+    conn.autocommit = False
+
     try:
         cursor = conn.cursor()
-        conn.autocommit = False
 
-        # ---- Check product exists ----
         cursor.execute("SELECT id FROM products WHERE id = ?", (product_id,))
-        product = cursor.fetchone()
-
-        if not product:
+        if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # ---- Check if product has orders ----
-        cursor.execute(
-            "SELECT COUNT(*) FROM orders WHERE product_id = ?",
-            (product_id,)
-        )
-        order_count = cursor.fetchone()[0]
-
-        if order_count > 0:
+        try:
+            cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+            cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+            conn.commit()
+        except pyodbc.IntegrityError:
+            conn.rollback()
             raise HTTPException(
                 status_code=409,
                 detail="Cannot delete product with existing orders"
             )
 
-        # ---- Safe to delete ----
-        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
-        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        return {"status": "deleted", "product_id": product_id}
+
+    finally:
+        conn.close()
+
+@app.post("/inventory/restock")
+def restock_inventory(payload: Dict):
+    product_id = payload.get("product_id")
+    quantity = payload.get("quantity")
+
+    if not isinstance(product_id, int) or not isinstance(quantity, int):
+        raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
+
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Restock quantity must be positive")
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+        conn.autocommit = False
+
+        # ---- Check product exists ----
+        cursor.execute(
+            "SELECT id FROM products WHERE id = ?",
+            (product_id,)
+        )
+        product = cursor.fetchone()
+
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # ---- Increase stock atomically ----
+        cursor.execute(
+            """
+            UPDATE inventory
+            SET stock = stock + ?
+            WHERE product_id = ?
+            """,
+            (quantity, product_id)
+        )
+
+        # ---- Get updated stock ----
+        cursor.execute(
+            "SELECT stock FROM inventory WHERE product_id = ?",
+            (product_id,)
+        )
+        updated_stock = cursor.fetchone()[0]
 
         conn.commit()
 
         return {
-            "status": "deleted",
-            "product_id": product_id
+            "status": "inventory_restocked",
+            "product_id": product_id,
+            "new_stock": updated_stock
         }
 
     except HTTPException:
@@ -480,6 +519,45 @@ def delete_product(product_id: int):
         raise
     except Exception:
         conn.rollback()
-        raise HTTPException(status_code=500, detail="Product deletion failed")
+        raise HTTPException(status_code=500, detail="Inventory restock failed")
+    finally:
+        conn.close()
+
+@app.get("/products/{product_id}")
+def get_product(product_id: int):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT 
+                product_id,
+                name,
+                price,
+                category,
+                created_at
+            FROM products
+            WHERE product_id = ?
+            """,
+            (product_id,)
+        )
+
+        row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail="Product not found"
+            )
+
+        return {
+            "product_id": row[0],
+            "name": row[1],
+            "price": float(row[2]),
+            "category": row[3],
+            "created_at": row[4]
+        }
+
     finally:
         conn.close()

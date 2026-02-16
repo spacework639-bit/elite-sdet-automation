@@ -2,7 +2,7 @@
 
 import pytest
 import uuid
-
+import pyodbc
 
 # ---------------------------------------------------------
 # 1️⃣ PRODUCT NOT FOUND
@@ -15,7 +15,7 @@ def test_delete_product_not_found(api_client):
     - Deleting non-existent product must return 404
     """
 
-    response = api_client.delete("/products/999999")
+    response = api_client.delete("/products/99999999")
 
     assert response.status_code == 404
     assert "Product not found" in response.json()["detail"]
@@ -34,25 +34,32 @@ def test_delete_product_with_existing_orders(api_client, db_connection):
 
     cursor = db_connection.cursor()
 
-    # ---- Pick product ----
-    cursor.execute("""
-        SELECT TOP 1 p.id
-        FROM products p
-        JOIN inventory i ON p.id = i.product_id
-        ORDER BY p.id
-    """)
-    row = cursor.fetchone()
-    assert row is not None, "No product found"
+    # ---- Create isolated product ----
+    cursor.execute(
+        """
+        INSERT INTO products (name, price, category)
+        OUTPUT INSERTED.id
+        VALUES (?, ?, ?)
+        """,
+        ("Delete409Product", 200.00, "Test")
+    )
+    product_id = cursor.fetchone()[0]
 
-    product_id = row[0]
+    cursor.execute(
+        "INSERT INTO inventory (product_id, stock) VALUES (?, ?)",
+        (product_id, 10)
+    )
+    db_connection.commit()
 
-    # ---- Create order for this product ----
-    response = api_client.post(
+    # ---- Create order ----
+    create_response = api_client.post(
         "/orders",
         json={"product_id": product_id, "quantity": 1},
         headers={"Idempotency-Key": str(uuid.uuid4())}
     )
-    assert response.status_code == 200
+
+    assert create_response.status_code == 200
+    order_id = create_response.json()["order_id"]
 
     try:
         # ---- Attempt delete ----
@@ -62,9 +69,12 @@ def test_delete_product_with_existing_orders(api_client, db_connection):
         assert "Cannot delete product" in delete_response.json()["detail"]
 
     finally:
-        # ---- Cleanup: cancel order so DB not polluted ----
-        order_id = response.json()["order_id"]
+        # ---- Cleanup ----
         api_client.post(f"/orders/{order_id}/cancel")
+        cursor.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
+        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        db_connection.commit()
 
 
 # ---------------------------------------------------------
@@ -95,18 +105,25 @@ def test_delete_product_success(api_client, db_connection):
         "INSERT INTO inventory (product_id, stock) VALUES (?, ?)",
         (product_id, 10)
     )
-
     db_connection.commit()
 
-    # ---- ACT ----
-    response = api_client.delete(f"/products/{product_id}")
+    try:
+        # ---- ACT ----
+        response = api_client.delete(f"/products/{product_id}")
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "deleted"
+        assert response.status_code == 200
+        assert response.json()["status"] == "deleted"
+        assert response.json()["product_id"] == product_id
 
-    # ---- ASSERT DB ----
-    cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-    assert cursor.fetchone() is None
+        # ---- ASSERT DB ----
+        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        assert cursor.fetchone() is None
 
-    cursor.execute("SELECT * FROM inventory WHERE product_id = ?", (product_id,))
-    assert cursor.fetchone() is None
+        cursor.execute("SELECT * FROM inventory WHERE product_id = ?", (product_id,))
+        assert cursor.fetchone() is None
+
+    finally:
+        # Extra safety cleanup (in case test fails mid-way)
+        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        db_connection.commit()
