@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Header
 from typing import Dict
 from .db import get_connection
+from fastapi import Query
 
 load_dotenv()
 
@@ -297,5 +298,188 @@ def cancel_order(order_id: int):
     except Exception:
         conn.rollback()
         raise HTTPException(status_code=500, detail="Order cancellation failed")
+    finally:
+        conn.close()
+
+@app.get("/orders")
+def list_orders(
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100)
+):
+    """
+    List orders with pagination.
+    Ordered by newest first.
+    Returns total count + paginated data.
+    """
+
+    offset = (page - 1) * size
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # ---- Get total count ----
+        cursor.execute("SELECT COUNT(*) FROM orders")
+        total = cursor.fetchone()[0]
+
+        # ---- Fetch paginated rows ----
+        cursor.execute(
+            """
+            SELECT 
+                order_id,
+                user_id,
+                vendor_id,
+                product_id,
+                product_type,
+                quantity,
+                total_amount,
+                status,
+                idempotency_key,
+                created_at
+            FROM orders
+            ORDER BY created_at DESC
+            OFFSET ? ROWS
+            FETCH NEXT ? ROWS ONLY
+            """,
+            (offset, size)
+        )
+
+        rows = cursor.fetchall()
+
+        orders = [
+            {
+                "order_id": r[0],
+                "user_id": r[1],
+                "vendor_id": r[2],
+                "product_id": r[3],
+                "product_type": r[4],
+                "quantity": r[5],
+                "total_amount": float(r[6]),
+                "status": r[7],
+                "idempotency_key": r[8],
+                "created_at": r[9]
+            }
+            for r in rows
+        ]
+
+        return {
+            "page": page,
+            "size": size,
+            "total": total,
+            "orders": orders
+        }
+
+    finally:
+        conn.close()
+
+@app.patch("/products/{product_id}")
+def update_product_price(product_id: int, payload: Dict):
+    """
+    Update product price.
+    """
+
+    new_price = payload.get("price")
+
+    # ---- Validation ----
+    if not isinstance(new_price, (int, float)):
+        raise HTTPException(status_code=400, detail="Price must be numeric")
+
+    if new_price <= 0:
+        raise HTTPException(status_code=400, detail="Price must be greater than zero")
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        conn.autocommit = False
+
+        # ---- Check product exists ----
+        cursor.execute(
+            "SELECT id, name, price, category, created_at FROM products WHERE id = ?",
+            (product_id,)
+        )
+        product = cursor.fetchone()
+
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # ---- Update price ----
+        cursor.execute(
+            "UPDATE products SET price = ? WHERE id = ?",
+            (new_price, product_id)
+        )
+
+        conn.commit()
+
+        # ---- Return updated product ----
+        cursor.execute(
+            "SELECT id, name, price, category, created_at FROM products WHERE id = ?",
+            (product_id,)
+        )
+        updated = cursor.fetchone()
+
+        return {
+            "id": updated[0],
+            "name": updated[1],
+            "price": float(updated[2]),
+            "category": updated[3],
+            "created_at": updated[4]
+        }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Product update failed")
+    finally:
+        conn.close()
+@app.delete("/products/{product_id}")
+def delete_product(product_id: int):
+    """
+    Delete product only if no orders exist.
+    """
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        conn.autocommit = False
+
+        # ---- Check product exists ----
+        cursor.execute("SELECT id FROM products WHERE id = ?", (product_id,))
+        product = cursor.fetchone()
+
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # ---- Check if product has orders ----
+        cursor.execute(
+            "SELECT COUNT(*) FROM orders WHERE product_id = ?",
+            (product_id,)
+        )
+        order_count = cursor.fetchone()[0]
+
+        if order_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete product with existing orders"
+            )
+
+        # ---- Safe to delete ----
+        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+
+        conn.commit()
+
+        return {
+            "status": "deleted",
+            "product_id": product_id
+        }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Product deletion failed")
     finally:
         conn.close()

@@ -2,7 +2,7 @@ import pytest
 import time
 from tests.ui.pages.products_page import ProductsPage
 import logging
-
+import uuid
 
 @pytest.mark.e2e_ui
 @pytest.mark.regression
@@ -23,7 +23,7 @@ def test_ui_order_success_reduces_inventory(page, db_connection):
     product_id = row[0]
     logging.info(f"Selected product_id={product_id} for success test")
     order_qty = 2
-    idem_key = f"ui-ok-{int(time.time())}"
+    idem_key = str(uuid.uuid4())
 
     # ---------- BEFORE ----------
     cursor.execute(
@@ -64,7 +64,7 @@ def test_ui_order_success_reduces_inventory(page, db_connection):
 def test_ui_order_product_not_found(page):
     product_id = 999999   # non-existent product
     order_qty = 1
-    idem_key = f"ui-nf-{int(time.time())}"
+    idem_key = str(uuid.uuid4())
 
     ui = ProductsPage(page)
     ui.open_orders_api()
@@ -112,7 +112,7 @@ def test_ui_order_insufficient_stock(page, db_connection):
         db_connection.commit()
 
         order_qty = 5
-        idem_key = f"ui-stock-{int(time.time())}"
+        idem_key = str(uuid.uuid4())
 
         ui = ProductsPage(page)
         ui.open_orders_api()

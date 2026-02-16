@@ -4,6 +4,7 @@ import pytest
 from core.failure_types import FailureType, Severity
 import time
 import logging
+import uuid
 
 
 @pytest.mark.failure(
@@ -65,7 +66,7 @@ def test_create_order_success_reduces_inventory_and_creates_order(
     response = api_client.post(
     "/orders",
     json=payload,
-    headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"})
+   headers={"Idempotency-Key": str(uuid.uuid4())})
 
 
     # ---------- ASSERT : API ----------
@@ -162,7 +163,7 @@ def test_create_order_fails_when_stock_is_insufficient_and_inventory_unchanged(
         response = api_client.post(
         "/orders",
         json=payload,
-        headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
+       headers={"Idempotency-Key": str(uuid.uuid4())}
         )
 
 
@@ -214,7 +215,7 @@ def test_create_order_fails_for_invalid_product_id(api_client):
     response = api_client.post(
     "/orders",
     json=payload,
-    headers={"Idempotency-Key": f"e2e-success-{int(time.time() * 1000)}"}
+   headers={"Idempotency-Key": str(uuid.uuid4())}
     )
 
 
