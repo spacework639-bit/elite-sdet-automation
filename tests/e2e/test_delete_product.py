@@ -2,7 +2,6 @@
 
 import pytest
 import uuid
-import pyodbc
 
 # ---------------------------------------------------------
 # 1️⃣ PRODUCT NOT FOUND
