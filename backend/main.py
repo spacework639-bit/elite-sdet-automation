@@ -532,13 +532,13 @@ def get_product(product_id: int):
         cursor.execute(
             """
             SELECT 
-                product_id,
+                id,
                 name,
                 price,
                 category,
                 created_at
             FROM products
-            WHERE product_id = ?
+            WHERE id = ?
             """,
             (product_id,)
         )
