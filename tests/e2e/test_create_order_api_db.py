@@ -2,7 +2,6 @@
 
 import pytest
 from core.failure_types import FailureType, Severity
-import time
 import logging
 import uuid
 
