@@ -1,5 +1,4 @@
 import pytest
-import time
 from tests.ui.pages.products_page import ProductsPage
 import logging
 import uuid
