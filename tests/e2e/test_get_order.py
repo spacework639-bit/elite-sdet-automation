@@ -1,5 +1,6 @@
 
 import pytest
+import time
 
 
 @pytest.mark.e2e
@@ -30,7 +31,7 @@ def test_get_order_success(api_client, db_connection):
     response = api_client.post(
         "/orders",
         json={"product_id": product_id, "quantity": quantity},
-        headers={"Idempotency-Key": f"get-order-{int(time.time()*1000)}"}
+        idem_key = str(uuid.uuid4())
     )
 
     assert response.status_code == 200
