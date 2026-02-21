@@ -60,14 +60,26 @@ CREATE TABLE orders (
 
     CONSTRAINT chk_quantity_positive CHECK (quantity > 0),
     CONSTRAINT chk_total_amount_positive CHECK (total_amount > 0),
-    CONSTRAINT chk_status_valid CHECK (status IN ('PENDING','CANCELLED')),
+
+    -- ✅ UPDATED STATUS CONSTRAINT (LOWERCASE + FULL LIFECYCLE)
+    CONSTRAINT chk_status_valid CHECK (
+        status IN (
+            'pending',
+            'confirmed',
+            'shipped',
+            'completed',
+            'return_requested',
+            'returned',
+            'refunded',
+            'cancelled'
+        )
+    ),
 
     CONSTRAINT fk_orders_product
         FOREIGN KEY (product_id)
         REFERENCES products(id)
         ON DELETE NO ACTION
 );
-
 
 /* =========================================================
    PERFORMANCE INDEXES (CRITICAL)
