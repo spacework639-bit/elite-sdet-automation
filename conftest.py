@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from backend.main import app
 import logging  
+from core.failure_types import FailureType, Severity
 
 load_dotenv()
 
@@ -16,7 +17,25 @@ logging.basicConfig(
 )
 
 
+def classify_failure(rep):
+    if rep.failed:
+        longrepr = str(rep.longrepr)
 
+        if "AssertionError" in longrepr:
+            return FailureType.VALIDATION, Severity.MEDIUM
+
+        if "409" in longrepr:
+            return FailureType.BUSINESS, Severity.HIGH
+
+        if "CHECK constraint" in longrepr or "Integrity" in longrepr:
+            return FailureType.DATA, Severity.HIGH
+
+        if "Timeout" in longrepr:
+            return FailureType.SYSTEM, Severity.CRITICAL
+
+        return FailureType.SYSTEM, Severity.CRITICAL
+
+    return None, None
 
 
 # -------------------------------------------------
@@ -126,6 +145,10 @@ def pytest_runtest_makereport(item, call):
 
     if call.when == "call":
         item.rep_call = rep
+        failure_type, severity = classify_failure(rep)
+
+        item.failure_type = failure_type
+        item.severity = severity
 
         page = item.funcargs.get("page")
 
