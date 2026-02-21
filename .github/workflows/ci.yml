@@ -89,7 +89,7 @@ jobs:
       - name: Run Integration Tests with Coverage
         run: |
           mkdir -p reports
-          python -m pytest -m "integration or e2e" \
+          python -m pytest -m "unit or integration or e2e" \
             --junitxml=reports/report.xml \
             --html=reports/report.html \
             --self-contained-html \
