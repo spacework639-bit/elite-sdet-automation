@@ -106,9 +106,10 @@ def confirm_order(order_id: int):
         conn.rollback()
         raise
 
-    except Exception:
+    except Exception as e:
+        print("CONFIRM ERROR:", str(e))
         conn.rollback()
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(e))
 
     finally:
         conn.close()
