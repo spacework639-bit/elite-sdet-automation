@@ -2,7 +2,7 @@
 
 import pytest
 import uuid
-
+pytestmark = pytest.mark.integration
 # ---------------------------------------------------------
 # 1️⃣ PRODUCT NOT FOUND
 # ---------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import pytest
 
-
+pytestmark = pytest.mark.integration
 # ---------------------------------------------------------
 # 1️⃣ SUCCESS – STOCK INCREASES
 # ---------------------------------------------------------

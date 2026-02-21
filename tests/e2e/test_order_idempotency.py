@@ -1,6 +1,6 @@
 import pytest
 from core.failure_types import FailureType, Severity
-
+pytestmark = pytest.mark.integration
 
 @pytest.mark.e2e
 @pytest.mark.idempotency

@@ -5,7 +5,7 @@ from core.failure_types import FailureType, Severity
 import logging
 import uuid
 
-
+pytestmark = pytest.mark.integration
 @pytest.mark.failure(
     type=FailureType.SYSTEM,
     severity=Severity.MEDIUM,

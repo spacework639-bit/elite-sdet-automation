@@ -8,8 +8,30 @@ on:
 
 jobs:
 
-  api_tests:
+  unit_tests:
     runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Unit Tests
+        run: |
+          pytest -m unit -v
+
+
+  integration_tests:
+    runs-on: ubuntu-22.04
+    needs: unit_tests
 
     env:
       DB_SERVER: localhost
@@ -17,7 +39,7 @@ jobs:
       DB_USER: sa
       DB_PASSWORD: YourStrong!Passw0rd
       APP_PORT: 8000
-      
+
       BUILD_ID: GHA_${{ github.run_number }}
       ENV_NAME: CI
 
@@ -64,25 +86,28 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps
 
-      - name: Run Ruff Lint
-        run: |
-          ruff check .
-
-      - name: Run API & DB Tests with Coverage
+      - name: Run Integration Tests with Coverage
         run: |
           mkdir -p reports
-          python -m pytest -k "not e2e_ui and not performance" --junitxml=reports/report.xml --html=reports/report.html --self-contained-html --cov=backend --cov-report=xml:reports/coverage.xml --cov-report=html:reports/coverage-html --cov-fail-under=80
+          python -m pytest -m "integration or e2e" \
+            --junitxml=reports/report.xml \
+            --html=reports/report.html \
+            --self-contained-html \
+            --cov=backend \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=html:reports/coverage-html \
+            --cov-fail-under=80
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
         with:
-          name: api-test-reports
+          name: integration-test-reports
           path: reports/
 
 
   performance_tests:
     runs-on: ubuntu-22.04
-    needs: api_tests
+    needs: integration_tests
 
     env:
       DB_SERVER: localhost
@@ -93,7 +118,6 @@ jobs:
 
       BUILD_ID: GHA_${{ github.run_number }}
       ENV_NAME: CI
-
 
     steps:
       - name: Checkout Code
@@ -148,7 +172,6 @@ jobs:
           path: reports/
 
 
-
   ui_tests:
     runs-on: ubuntu-22.04
     needs: performance_tests
@@ -162,7 +185,6 @@ jobs:
 
       BUILD_ID: GHA_${{ github.run_number }}
       ENV_NAME: CI
-
 
     steps:
       - name: Checkout Code

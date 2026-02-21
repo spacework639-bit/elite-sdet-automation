@@ -1,7 +1,7 @@
 import pytest
 import uuid
 
-
+pytestmark = pytest.mark.integration
 @pytest.mark.e2e
 @pytest.mark.lifecycle
 def test_full_order_lifecycle(

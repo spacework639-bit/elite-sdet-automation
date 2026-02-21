@@ -1,7 +1,7 @@
 
 import pytest
 import time
-
+pytestmark = pytest.mark.integration
 @pytest.mark.e2e
 def test_get_order_success(api_client, db_connection):
     """

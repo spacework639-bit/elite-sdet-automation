@@ -1,7 +1,6 @@
 import time
 import pytest
-
-
+pytestmark = pytest.mark.integration
 @pytest.mark.e2e
 def test_cancel_order_success_restores_inventory(api_client, db_connection):
     """
@@ -77,7 +76,6 @@ def test_cancel_order_success_restores_inventory(api_client, db_connection):
 
     assert after_cancel_stock == before_stock
 
-
 @pytest.mark.e2e
 def test_cancel_order_double_cancel(api_client):
     """
@@ -90,7 +88,6 @@ def test_cancel_order_double_cancel(api_client):
     response = api_client.post("/orders/9999999/cancel")
 
     assert response.status_code == 404
-
 
 @pytest.mark.e2e
 def test_cancel_order_non_existent(api_client):

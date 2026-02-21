@@ -1,5 +1,5 @@
 import pytest
-
+pytestmark = pytest.mark.integration
 @pytest.mark.e2e
 def test_update_product_price_success(api_client, db_connection):
     cursor = db_connection.cursor()

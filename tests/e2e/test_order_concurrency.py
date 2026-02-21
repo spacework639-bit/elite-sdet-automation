@@ -1,6 +1,6 @@
 import pytest
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+pytestmark = pytest.mark.integration
 
 @pytest.mark.e2e
 @pytest.mark.concurrency

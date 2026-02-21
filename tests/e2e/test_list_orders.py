@@ -1,5 +1,5 @@
 import pytest
-
+pytestmark = pytest.mark.integration
 @pytest.mark.e2e
 def test_list_orders_returns_paginated_data(api_client):
     response = api_client.get("/orders?page=1&size=5")

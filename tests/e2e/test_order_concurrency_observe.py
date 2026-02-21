@@ -1,7 +1,7 @@
 import pytest
 from concurrent.futures import ThreadPoolExecutor
 
-
+pytestmark = pytest.mark.integration
 @pytest.mark.e2e
 @pytest.mark.concurrency
 def test_concurrent_orders_observe(
