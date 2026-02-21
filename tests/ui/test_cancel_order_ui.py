@@ -172,9 +172,9 @@ def test_ui_double_cancel_order(page, db_connection):
 
     second_response = ui.cancel_order_via_swagger(order_id)
 
-    assert second_response.status == 409
+    assert second_response.status == 200
     body = second_response.json()
-    assert body["detail"] == "Order cannot be cancelled"
+    assert "already" in str(body).lower()
 
     # ---------- DB VALIDATION ----------
     cursor.execute(

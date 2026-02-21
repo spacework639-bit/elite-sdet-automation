@@ -5,8 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from backend.main import app
-from core.excel_reporter import ExcelReporter
-import logging
+import logging  
 
 load_dotenv()
 
@@ -115,15 +114,11 @@ def test_product(db_connection):
     cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
     db_connection.commit()
 # -------------------------------------------------
-# PYTEST → EXCEL REPORT HOOK (CONNECTION)
+
+# -------------------------------------------------
+# SCREENSHOT + REPORT HOOK
 # -------------------------------------------------
 
-
-reporter = ExcelReporter()
-
-    # -------------------------
-    # SCREENSHOT ON FAILURE
-    # -------------------------
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
@@ -134,18 +129,28 @@ def pytest_runtest_makereport(item, call):
 
         page = item.funcargs.get("page")
 
-        if page and (rep.failed or hasattr(rep, "wasxfail")):
+        # Detect real failure OR expected failure
+        is_failed = rep.failed
+        is_xfailed = hasattr(rep, "wasxfail")
+
+        if page and (is_failed or is_xfailed):
 
             os.makedirs("reports/screenshots", exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+            status_tag = "FAILED" if is_failed else "XFAILED"
+
             screenshot_path = (
-                f"reports/screenshots/{item.name}_{timestamp}.png"
+                f"reports/screenshots/{item.name}_{status_tag}_{timestamp}.png"
             )
 
             page.screenshot(path=screenshot_path, full_page=True)
+
+            # Attach screenshot path to test item for Excel
+            item.screenshot_path = screenshot_path
+
+
 def pytest_sessionfinish(session, exitstatus):
     from reporting.excel_report import generate_report
-
     generate_report(session)

@@ -17,6 +17,9 @@ jobs:
       DB_USER: sa
       DB_PASSWORD: YourStrong!Passw0rd
       APP_PORT: 8000
+      
+      BUILD_ID: GHA_${{ github.run_number }}
+      ENV_NAME: CI
 
     steps:
       - name: Checkout Code
@@ -88,6 +91,10 @@ jobs:
       DB_PASSWORD: YourStrong!Passw0rd
       APP_PORT: 8000
 
+      BUILD_ID: GHA_${{ github.run_number }}
+      ENV_NAME: CI
+
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -152,6 +159,10 @@ jobs:
       DB_USER: sa
       DB_PASSWORD: YourStrong!Passw0rd
       APP_PORT: 8000
+
+      BUILD_ID: GHA_${{ github.run_number }}
+      ENV_NAME: CI
+
 
     steps:
       - name: Checkout Code
