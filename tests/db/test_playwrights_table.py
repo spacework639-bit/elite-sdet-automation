@@ -1,3 +1,4 @@
+import pytest
 pytestmark = pytest.mark.integration
 def test_playwrights_insert_and_rollback(db_connection):
     cursor = db_connection.cursor()

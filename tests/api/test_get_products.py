@@ -1,3 +1,5 @@
+
+import pytest
 pytestmark = pytest.mark.integration
 def test_get_products(api_client):
     response = api_client.get("/products")
