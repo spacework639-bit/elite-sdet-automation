@@ -1,3 +1,4 @@
+pytestmark = pytest.mark.integration
 def test_create_playwright_api(api_client):
     payload = {
         "name": "api_test_user",

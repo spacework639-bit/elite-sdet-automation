@@ -1,5 +1,5 @@
 import pytest
-
+pytestmark = pytest.mark.integration
 # =========================================================
 # SMOKE TESTS — REAL ENDPOINTS ONLY
 # =========================================================

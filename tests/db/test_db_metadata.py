@@ -1,3 +1,4 @@
+pytestmark = pytest.mark.integration
 def test_db_metadata(db_connection):
     cursor = db_connection.cursor()
 
