@@ -1,4 +1,9 @@
+import os
 from playwright.sync_api import expect
+
+
+# 🔥 Base URL from environment (Docker / CI / Local safe)
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
 class InventoryPage:
@@ -10,7 +15,7 @@ class InventoryPage:
     # ---------------------------------------------------------
     def open_restock_api(self):
         self.page.goto(
-            "http://127.0.0.1:8000/docs#/default/restock_inventory_inventory_restock_post",
+            f"{BASE_URL}/docs#/default/restock_inventory_inventory_restock_post",
             wait_until="domcontentloaded"
         )
 

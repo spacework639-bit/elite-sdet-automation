@@ -3,8 +3,13 @@ import platform
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
+import re
 
-
+def sanitize_excel_value(value):
+    if isinstance(value, str):
+        # Remove illegal control characters
+        return re.sub(r'[\x00-\x1F\x7F]', '', value)
+    return value
 # ---------------------------------------------------------
 # FAILURE CLASSIFICATION (IMPROVED)
 # ---------------------------------------------------------
@@ -115,7 +120,8 @@ def generate_report(session):
             timestamp
         ]
 
-        ws.append(row)
+        clean_row = [sanitize_excel_value(cell) for cell in row]
+        ws.append(clean_row)
 
         # Highlight failures
         if outcome == "FAILED":

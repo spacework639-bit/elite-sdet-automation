@@ -1,11 +1,10 @@
 import os
 import pytest
 import pyodbc
+import requests   # ← ADD THIS
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi.testclient import TestClient
-from backend.main import app
-import logging  
+import logging
 from core.failure_types import FailureType, Severity
 
 load_dotenv()
@@ -15,7 +14,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
-
 
 def classify_failure(rep):
     if rep.failed:
@@ -38,6 +36,25 @@ def classify_failure(rep):
     return None, None
 
 
+@pytest.fixture(scope="session")
+def api_client():
+    base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+
+    class APIClient:
+        def post(self, path, **kwargs):
+            return requests.post(f"{base_url}{path}", **kwargs)
+
+        def get(self, path, **kwargs):
+            return requests.get(f"{base_url}{path}", **kwargs)
+
+        def patch(self, path, **kwargs):
+            return requests.patch(f"{base_url}{path}", **kwargs)
+
+        def delete(self, path, **kwargs):
+            return requests.delete(f"{base_url}{path}", **kwargs)
+
+    return APIClient()
+
 # -------------------------------------------------
 # DATABASE CONNECTION FIXTURE
 # -------------------------------------------------
@@ -54,25 +71,29 @@ def db_connection():
     assert password, "DB_PASSWORD not set"
 
     conn = pyodbc.connect(
-        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "DRIVER={ODBC Driver 18 for SQL Server};"
         f"SERVER={server};"
         f"DATABASE={database};"
-        f"UID={username};"
+        f"UID={username};"  
         f"PWD={password};"
+        "Encrypt=yes;"
+        "TrustServerCertificate=yes;"
     )
+
+    # 🔎 TEMP DEBUG
+    cursor = conn.cursor()
+    cursor.execute("SELECT @@SERVERNAME")
+    print("\n[DB FIXTURE] Connected to:", cursor.fetchone()[0])
 
     conn.autocommit = False
     yield conn
     conn.rollback()
     conn.close()
 
-
 # -------------------------------------------------
 # API CLIENT FIXTURE
 # -------------------------------------------------
-@pytest.fixture(scope="session")
-def api_client():
-    return TestClient(app)
+
 
 
 

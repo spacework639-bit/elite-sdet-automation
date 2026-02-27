@@ -1,6 +1,7 @@
 from playwright.sync_api import expect
+import os
 
-
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 class ProductsPage:
     def __init__(self, page):
         self.page = page
@@ -8,9 +9,12 @@ class ProductsPage:
     # ---------------------------------------------------------
     # OPEN CREATE ORDER ENDPOINT
     # ---------------------------------------------------------
+       # ---------------------------------------------------------
+    # OPEN CREATE ORDER ENDPOINT
+    # ---------------------------------------------------------
     def open_orders_api(self):
         self.page.goto(
-            "http://127.0.0.1:8000/docs#/default/create_order_orders_post",
+            f"{BASE_URL}/docs#/default/create_order_orders_post",
             wait_until="domcontentloaded"
         )
 

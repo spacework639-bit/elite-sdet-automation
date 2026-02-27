@@ -1,4 +1,9 @@
+import os
 from playwright.sync_api import expect
+
+
+# 🔥 Environment-driven base URL
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
 class OrdersPage:
@@ -10,7 +15,7 @@ class OrdersPage:
     # ---------------------------------------------------------
     def open_cancel_order_api(self):
         self.page.goto(
-            "http://127.0.0.1:8000/docs#/default/cancel_order_orders__order_id__cancel_post",
+            f"{BASE_URL}/docs#/default/cancel_order_orders__order_id__cancel_post",
             wait_until="domcontentloaded"
         )
 
@@ -39,14 +44,13 @@ class OrdersPage:
         if "is-open" not in classes:
             endpoint.locator(".opblock-summary").click()
 
-        # Click "Try it out" only if visible
+        # Click "Try it out" if visible
         try_button = endpoint.locator("button:has-text('Try it out')")
         if try_button.count() > 0 and try_button.is_visible():
             try_button.click()
 
         # Locate parameter row safely
         param_row = endpoint.locator("tr[data-param-name='order_id']")
-
         expect(param_row).to_be_visible()
 
         order_input = param_row.locator("input")

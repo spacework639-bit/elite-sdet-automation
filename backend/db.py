@@ -1,17 +1,23 @@
-import pyodbc
 import os
+import pyodbc
 from contextlib import contextmanager
 
 
 def _build_connection_string() -> str:
+    """
+    Builds SQL Server connection string from environment variables.
+    Fails fast if required variables are missing.
+    """
     required_vars = ["DB_SERVER", "DB_NAME", "DB_USER", "DB_PASSWORD"]
-    missing = [v for v in required_vars if not os.getenv(v)]
+    missing = [var for var in required_vars if not os.getenv(var)]
 
     if missing:
         raise RuntimeError(f"Missing DB environment variables: {missing}")
 
+    driver = os.getenv("ODBC_DRIVER", "ODBC Driver 18 for SQL Server")
+
     return (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
+        f"DRIVER={{{driver}}};"
         f"SERVER={os.getenv('DB_SERVER')};"
         f"DATABASE={os.getenv('DB_NAME')};"
         f"UID={os.getenv('DB_USER')};"
@@ -23,26 +29,26 @@ def _build_connection_string() -> str:
 
 def get_connection():
     """
-    Returns a new DB connection.
-    Autocommit is disabled by default to allow explicit transaction control.
+    Creates and returns a new database connection.
+    Autocommit is disabled to allow explicit transaction handling.
     """
-    conn = pyodbc.connect(_build_connection_string())
-    conn.autocommit = False
-    return conn
+    connection = pyodbc.connect(_build_connection_string())
+    connection.autocommit = False
+    return connection
 
 
 @contextmanager
 def db_session():
     """
-    Context manager for DB sessions.
-    Ensures commit/rollback safety.
+    Provides a transactional scope around a series of operations.
+    Automatically commits on success and rolls back on failure.
     """
-    conn = get_connection()
+    connection = get_connection()
     try:
-        yield conn
-        conn.commit()
+        yield connection
+        connection.commit()
     except Exception:
-        conn.rollback()
+        connection.rollback()
         raise
     finally:
-        conn.close()
+        connection.close()

@@ -4,31 +4,38 @@ from typing import Dict
 from .db import get_connection
 from fastapi import Query
 import pyodbc
+from backend.services.order_service import update_order_status, create_order_service
+from backend.schemas.order_schema import CreateOrderRequest
+from fastapi import status
+
 
 load_dotenv()
 
 app = FastAPI()
+# -------------------------
+# Health Endpoints
+# -------------------------
 
-# -------------------------------------------------
-# PLAYWRIGHTS APIs
-# -------------------------------------------------
-ALLOWED_TRANSITIONS = {
-    "pending": ["confirmed", "cancelled"],
-    "confirmed": ["shipped", "cancelled"],
-    "shipped": ["completed"],
-    "completed": ["return_requested"],
-    "return_requested": ["returned"],
-    "returned": ["refunded"],
-    "cancelled": [],
-    "refunded": []
-}
-def validate_transition(current_status: str, new_status: str):
-    allowed = ALLOWED_TRANSITIONS.get(current_status, [])
-    if new_status not in allowed:
+@app.get("/health")
+def liveness():
+    return {"status": "alive"}
+
+
+@app.get("/ready")
+def readiness():
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        conn.close()
+        return {"status": "ready"}
+    except Exception:
         raise HTTPException(
-            status_code=409,
-            detail=f"Invalid transition from {current_status} to {new_status}"
+            status_code=503,
+            detail="Database not reachable"
         )
+
 @app.post("/playwrights")
 def create_playwright(payload: Dict):
     name = payload.get("name")
@@ -63,224 +70,29 @@ def get_playwrights():
         return [{"id": r[0], "name": r[1], "skill": r[2]} for r in rows]
     finally:
         conn.close()
+
 @app.post("/orders/{order_id}/confirm")
 def confirm_order(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        # Begin transaction explicitly
-        conn.autocommit = False
-
-        # Lock row to prevent race condition
-        cursor.execute(
-            "SELECT status FROM Orders WITH (UPDLOCK, ROWLOCK) WHERE order_id = ?",
-            order_id
-        )
-        row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        current_status = row[0]
-
-        # Idempotent behavior:
-        if current_status == "confirmed":
-            return {"message": "Order already confirmed"}
-
-        # Validate transition
-        validate_transition(current_status, "confirmed")
-
-        # Update status
-        cursor.execute(
-            "UPDATE Orders SET status = ? WHERE order_id = ?",
-            "confirmed",
-            order_id
-        )
-
-        conn.commit()
-
-        return {"message": "Order confirmed successfully"}
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception as e:
-        print("CONFIRM ERROR:", str(e))
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        conn.close()
+    return update_order_status(order_id, "confirmed")
 
 #--------------------------------------------
 
 @app.post("/orders/{order_id}/return-request")
 def request_return(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        conn.autocommit = False
-
-        cursor.execute(
-            """
-            SELECT status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-
-        row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        current_status = row[0]
-
-        if current_status == "return_requested":
-            return {"message": "Return already requested"}
-
-        validate_transition(current_status, "return_requested")
-
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            "return_requested",
-            order_id
-        )
-
-        conn.commit()
-
-        return {"message": "Return requested successfully"}
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Return request failed")
-
-    finally:
-        conn.close()
+      return update_order_status(order_id, "return_requested")
+    
 #-----------------------------------------------------
 
 @app.post("/orders/{order_id}/return-received")
 def receive_return(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        conn.autocommit = False
-
-        # Lock row
-        cursor.execute(
-            """
-            SELECT product_id, quantity, status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-
-        row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        product_id, quantity, current_status = row
-
-        if current_status == "returned":
-            return {"message": "Return already processed"}
-
-        validate_transition(current_status, "returned")
-
-        # Update status
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            "returned",
-            order_id
-        )
-
-        # Restore inventory
-        cursor.execute(
-            """
-            UPDATE inventory
-            SET stock = stock + ?
-            WHERE product_id = ?
-            """,
-            quantity,
-            product_id
-        )
-
-        conn.commit()
-
-        return {"message": "Return received and inventory restored"}
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Return processing failed")
-
-    finally:
-        conn.close()
+     return update_order_status(order_id, "returned", restore_inventory=True)
+   
 # -------------------------------------------------
 
 @app.post("/orders/{order_id}/refund")
 def refund_order(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        conn.autocommit = False
-
-        cursor.execute(
-            """
-            SELECT status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-
-        row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        current_status = row[0]
-
-        if current_status == "refunded":
-            return {"message": "Order already refunded"}
-
-        validate_transition(current_status, "refunded")
-
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            "refunded",
-            order_id
-        )
-
-        conn.commit()
-
-        return {"message": "Order refunded successfully"}
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Refund failed")
-
-    finally:
-        conn.close()
-
+     return update_order_status(order_id, "refunded")
+    
 #--------------------------------------------------------------------------
 # PRODUCTS API
 # -------------------------------------------------
@@ -312,124 +124,14 @@ def get_products():
 # ORDERS API (CORE BUSINESS LOGIC)
 # -------------------------------------------------
 
+
+
 @app.post("/orders")
 def create_order(
-    payload: Dict,
-    request: Request,
+    payload: CreateOrderRequest,
     idempotency_key: str = Header(..., alias="Idempotency-Key")
 ):
-    product_id = payload.get("product_id")
-    quantity = payload.get("quantity")
-    user_id = payload.get("user_id", 91)
-    vendor_id = payload.get("vendor_id", 1)
-
-    # ---------- VALIDATION ----------
-    if not isinstance(product_id, int) or not isinstance(quantity, int):
-        raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
-
-    if quantity <= 0:
-        raise HTTPException(status_code=400, detail="quantity must be positive")
-
-    if not isinstance(user_id, int) or not isinstance(vendor_id, int):
-        raise HTTPException(status_code=400, detail="user_id and vendor_id must be integers")
-
-    conn = get_connection()
-
-    try:
-        cursor = conn.cursor()
-        conn.autocommit = False
-        cursor.execute("SELECT DB_NAME()")
-        print("PYTEST CONNECTED DB:", cursor.fetchone()[0])
-
-        # ---------- Idempotency Check ----------
-        cursor.execute(
-            """
-            SELECT order_id, total_amount
-            FROM orders
-            WHERE idempotency_key = ?
-            """,
-            (idempotency_key,)
-        )
-        existing_order = cursor.fetchone()
-
-        if existing_order:
-            return {
-                "status": "order_already_created",
-                "order_id": existing_order[0],
-                "total_amount": float(existing_order[1])
-            }
-
-        # ---------- Get Product ----------
-        cursor.execute("SELECT price FROM products WHERE id = ?", (product_id,))
-        product = cursor.fetchone()
-
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-
-        price = float(product[0])
-        total_amount = price * quantity
-
-        # ---------- Atomic Inventory Deduction ----------
-        cursor.execute(
-            """
-            UPDATE inventory
-            SET stock = stock - ?
-            WHERE product_id = ?
-            AND stock >= ?
-            """,
-            (quantity, product_id, quantity)
-        )
-
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=409, detail="Insufficient stock")
-
-        # ---------- Insert Order ----------
-        cursor.execute(
-            """
-            INSERT INTO orders (
-                user_id,
-                vendor_id,
-                product_type,
-                product_id,
-                quantity,
-                total_amount,
-                status,
-                idempotency_key,
-                created_at
-            )
-            OUTPUT INSERTED.order_id
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-            (
-                user_id,
-                vendor_id,
-                "HERBAL",
-                product_id,
-                quantity,
-                total_amount,
-                "pending",
-                idempotency_key
-            )
-        )
-
-        order_id = cursor.fetchone()[0]
-        conn.commit()
-
-        return {
-            "status": "order_created",
-            "order_id": int(order_id),
-            "total_amount": total_amount
-        }
-
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Order creation failed")
-    finally:
-        conn.close()
-
+    return create_order_service(payload.model_dump(), idempotency_key)
 
 @app.get("/orders/{order_id}")
 def get_order(order_id: int):
@@ -476,174 +178,18 @@ def get_order(order_id: int):
 
 @app.post("/orders/{order_id}/cancel")
 def cancel_order(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        conn.autocommit = False
-
-        # ---- Lock and Fetch Order ----
-        cursor.execute(
-            """
-            SELECT product_id, quantity, status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-        order = cursor.fetchone()
-
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        product_id, quantity, current_status = order
-
-        # ---- Idempotent Behavior ----
-        if current_status == "cancelled":
-            return {
-                "status": "already_cancelled",
-                "order_id": order_id
-            }
-
-        # ---- Validate Transition ----
-        validate_transition(current_status, "cancelled")
-
-        # ---- Update Order Status ----
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            "cancelled",
-            order_id
-        )
-
-        # ---- Restore Inventory ----
-        cursor.execute(
-            """
-            UPDATE inventory
-            SET stock = stock + ?
-            WHERE product_id = ?
-            """,
-            quantity,
-            product_id
-        )
-
-        conn.commit()
-
-        return {
-            "status": "order_cancelled",
-            "order_id": order_id
-        }
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Order cancellation failed")
-
-    finally:
-        conn.close()
-
+     return update_order_status(order_id, "cancelled", restore_inventory=True)
+  
 
 @app.post("/orders/{order_id}/ship")
 def ship_order(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        conn.autocommit = False
-
-        cursor.execute(
-            """
-            SELECT status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-
-        row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        current_status = row[0]
-
-        if current_status == "shipped":
-            return {"message": "Order already shipped"}
-
-        validate_transition(current_status, "shipped")
-
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            "shipped",
-            order_id
-        )
-
-        conn.commit()
-
-        return {"message": "Order shipped successfully"}
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Shipping failed")
-
-    finally:
-        conn.close()
+    return update_order_status(order_id, "shipped")
+   
 
 @app.post("/orders/{order_id}/complete")
 def complete_order(order_id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        conn.autocommit = False
-
-        cursor.execute(
-            """
-            SELECT status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-
-        row = cursor.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        current_status = row[0]
-
-        if current_status == "completed":
-            return {"message": "Order already completed"}
-
-        validate_transition(current_status, "completed")
-
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            "completed",
-            order_id
-        )
-
-        conn.commit()
-
-        return {"message": "Order completed successfully"}
-
-    except HTTPException:
-        conn.rollback()
-        raise
-
-    except Exception:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Completion failed")
-
-    finally:
-        conn.close()
+    return update_order_status(order_id, "completed")
+    
 
 @app.get("/orders")
 def list_orders(
