@@ -3,11 +3,9 @@ services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: elite_sqlserver
-    env_file:
-      - .env
     environment:
       ACCEPT_EULA: "Y"
-      SA_PASSWORD: ${DB_PASSWORD}
+      SA_PASSWORD: ${DB_PASSWORD:-StrongPass@123}
     ports:
       - "14333:1433"
     volumes:
@@ -19,18 +17,18 @@ services:
       /opt/mssql/bin/sqlservr &
       echo 'Waiting for SQL Server to accept connections...';
       for i in {1..30}; do
-        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD} -C -Q 'SELECT 1' && break;
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -Q 'SELECT 1' && break;
         sleep 2;
       done;
       echo 'Initializing database...';
-      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD} -C -i /init.sql;
-      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD} -C -d TravelXDB -i /schema.sql;
+      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -i /init.sql;
+      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -d TravelXDB -i /schema.sql;
       echo 'Database initialized successfully.';
       wait
       "
     healthcheck:
       test: >
-        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD} -C -Q "SELECT 1"
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -Q "SELECT 1"
       interval: 5s
       timeout: 3s
       retries: 10
@@ -42,11 +40,12 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
       DB_SERVER: sqlserver
       DB_PORT: 1433
+      DB_NAME: TravelXDB
+      DB_USER: sa
+      DB_PASSWORD: ${DB_PASSWORD:-StrongPass@123}
     ports:
       - "8000:8000"
     command: >
@@ -64,15 +63,13 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    # 🔥 IMPORTANT: REMOVE env_file FROM tests
-    # We do NOT want localhost DB config leaking here
     environment:
       API_BASE_URL: http://elite_api:8000
       DB_SERVER: sqlserver
       DB_PORT: 1433
       DB_NAME: TravelXDB
       DB_USER: sa
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: ${DB_PASSWORD:-StrongPass@123}
     command: >
       bash -c "
       echo 'Running test suite...' &&
