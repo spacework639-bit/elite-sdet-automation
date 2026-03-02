@@ -1,6 +1,6 @@
 # tests/e2e/test_restock_inventory.py
-
 import pytest
+import logging
 
 pytestmark = pytest.mark.integration
 # ---------------------------------------------------------
@@ -34,6 +34,7 @@ def test_restock_inventory_success(api_client, db_connection):
         (product_id,)
     )
     original_stock = cursor.fetchone()[0]
+    logging.info(f"Stock after order: {original_stock}")
 
     restock_qty = 5
 
@@ -53,6 +54,7 @@ def test_restock_inventory_success(api_client, db_connection):
             (product_id,)
         )
         updated_stock = cursor.fetchone()[0]
+        logging.info(f"Stock after order: {updated_stock}")
 
         assert updated_stock == original_stock + restock_qty
 

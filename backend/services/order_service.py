@@ -1,26 +1,12 @@
 from fastapi import HTTPException
-from backend.db import get_connection
 from backend.domain.transitions import validate_transition
+import pyodbc
 
 
-def update_order_status(order_id: int, new_status: str, restore_inventory: bool = False):
-    conn = get_connection()
-    cursor = conn.cursor()
-
+def update_order_status(conn, repo, order_id: int, new_status: str, restore_inventory: bool = False):
     try:
-        conn.autocommit = False
-
-        # Lock row and fetch required data
-        cursor.execute(
-            """
-            SELECT product_id, quantity, status
-            FROM orders WITH (UPDLOCK, ROWLOCK)
-            WHERE order_id = ?
-            """,
-            order_id
-        )
-
-        row = cursor.fetchone()
+        # ---- Lock row and fetch data ----
+        row = repo.get_order_for_update(conn, order_id)
 
         if not row:
             raise HTTPException(status_code=404, detail="Order not found")
@@ -40,28 +26,13 @@ def update_order_status(order_id: int, new_status: str, restore_inventory: bool 
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e))
 
-        # ---- Update order status ----
-        cursor.execute(
-            "UPDATE orders SET status = ? WHERE order_id = ?",
-            new_status,
-            order_id
-        )
+        # ---- Update status ----
+        repo.update_order_status(conn, order_id, new_status)
 
         # ---- Optional inventory restore ----
         if restore_inventory:
-            cursor.execute(
-                """
-                UPDATE inventory
-                SET stock = stock + ?
-                WHERE product_id = ?
-                """,
-                quantity,
-                product_id
-            )
+            repo.restore_inventory(conn, product_id, quantity)
 
-        conn.commit()
-
-        # ---- Preserve original API contract ----
         status_mapping = {
             "confirmed": "order_confirmed",
             "shipped": "order_shipped",
@@ -78,21 +49,19 @@ def update_order_status(order_id: int, new_status: str, restore_inventory: bool 
         }
 
     except HTTPException:
-        conn.rollback()
         raise
 
     except Exception:
-        conn.rollback()
         raise HTTPException(status_code=500, detail="Order status update failed")
 
-    finally:
-        conn.close()
-def create_order_service(payload: dict, idempotency_key: str):
+
+def create_order_service(conn, repo, payload: dict, idempotency_key: str):
     product_id = payload.get("product_id")
     quantity = payload.get("quantity")
     user_id = payload.get("user_id", 91)
     vendor_id = payload.get("vendor_id", 1)
 
+    # ---- Validation ----
     if not isinstance(product_id, int) or not isinstance(quantity, int):
         raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
 
@@ -102,22 +71,9 @@ def create_order_service(payload: dict, idempotency_key: str):
     if not isinstance(user_id, int) or not isinstance(vendor_id, int):
         raise HTTPException(status_code=400, detail="user_id and vendor_id must be integers")
 
-    conn = get_connection()
-    cursor = conn.cursor()
-
     try:
-        conn.autocommit = False
-
         # ---- Idempotency Check ----
-        cursor.execute(
-            """
-            SELECT order_id, total_amount
-            FROM orders
-            WHERE idempotency_key = ?
-            """,
-            (idempotency_key,)
-        )
-        existing_order = cursor.fetchone()
+        existing_order = repo.get_order_by_idempotency(conn, idempotency_key)
 
         if existing_order:
             return {
@@ -126,9 +82,8 @@ def create_order_service(payload: dict, idempotency_key: str):
                 "total_amount": float(existing_order[1])
             }
 
-        # ---- Get Product Price ----
-        cursor.execute("SELECT price FROM products WHERE id = ?", (product_id,))
-        product = cursor.fetchone()
+        # ---- Fetch Product Price ----
+        product = repo.get_product_price(conn, product_id)
 
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
@@ -137,51 +92,23 @@ def create_order_service(payload: dict, idempotency_key: str):
         total_amount = price * quantity
 
         # ---- Atomic Inventory Deduction ----
-        cursor.execute(
-            """
-            UPDATE inventory
-            SET stock = stock - ?
-            WHERE product_id = ?
-            AND stock >= ?
-            """,
-            (quantity, product_id, quantity)
-        )
+        affected_rows = repo.deduct_inventory(conn, product_id, quantity)
 
-        if cursor.rowcount == 0:
+        if affected_rows == 0:
             raise HTTPException(status_code=409, detail="Insufficient stock")
 
         # ---- Insert Order ----
-        cursor.execute(
-            """
-            INSERT INTO orders (
-                user_id,
-                vendor_id,
-                product_type,
-                product_id,
-                quantity,
-                total_amount,
-                status,
-                idempotency_key,
-                created_at
-            )
-            OUTPUT INSERTED.order_id
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-            (
-                user_id,
-                vendor_id,
-                "HERBAL",
-                product_id,
-                quantity,
-                total_amount,
-                "pending",
-                idempotency_key
-            )
+        order_id = repo.insert_order(
+            conn,
+            user_id,
+            vendor_id,
+            "HERBAL",
+            product_id,
+            quantity,
+            total_amount,
+            "pending",
+            idempotency_key
         )
-
-        order_id = cursor.fetchone()[0]
-
-        conn.commit()
 
         return {
             "status": "order_created",
@@ -190,12 +117,194 @@ def create_order_service(payload: dict, idempotency_key: str):
         }
 
     except HTTPException:
-        conn.rollback()
         raise
 
-    except Exception as e:
-        conn.rollback()
+    except pyodbc.Error as e:
+        error_text = str(e).lower()
+        if "deadlock" in error_text or "1205" in error_text:
+            raise HTTPException(status_code=409, detail="Concurrent stock conflict")
         raise HTTPException(status_code=500, detail=str(e))
-        
-    finally:
-        conn.close()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def get_products_service(conn, repo):
+    rows = repo.get_all_products(conn)
+
+    return [
+        {
+            "id": r[0],
+            "name": r[1],
+            "price": float(r[2]),
+            "category": r[3]
+        }
+        for r in rows
+    ]
+def list_orders_service(conn, repo, page: int, size: int):
+    offset = (page - 1) * size
+
+    total = repo.get_orders_count(conn)
+    rows = repo.get_orders_paginated(conn, offset, size)
+
+    orders = [
+        {
+            "order_id": r[0],
+            "user_id": r[1],
+            "vendor_id": r[2],
+            "product_id": r[3],
+            "product_type": r[4],
+            "quantity": r[5],
+            "total_amount": float(r[6]),
+            "status": r[7],
+            "idempotency_key": r[8],
+            "created_at": r[9]
+        }
+        for r in rows
+    ]
+
+    return {
+        "page": page,
+        "size": size,
+        "total": total,
+        "orders": orders
+    }
+def get_order_service(conn, repo, order_id: int):
+    row = repo.get_order_by_id(conn, order_id)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    return {
+        "order_id": row[0],
+        "user_id": row[1],
+        "vendor_id": row[2],
+        "product_id": row[3],
+        "quantity": row[4],
+        "total_amount": float(row[5]),
+        "status": row[6],
+        "created_at": row[7]
+    }
+
+def list_orders_service(conn, repo, page: int, size: int):
+    offset = (page - 1) * size
+
+    total = repo.get_orders_count(conn)
+    rows = repo.get_orders_paginated(conn, offset, size)
+
+    orders = [
+        {
+            "order_id": r[0],
+            "user_id": r[1],
+            "vendor_id": r[2],
+            "product_id": r[3],
+            "product_type": r[4],
+            "quantity": r[5],
+            "total_amount": float(r[6]),
+            "status": r[7],
+            "idempotency_key": r[8],
+            "created_at": r[9]
+        }
+        for r in rows
+    ]
+
+    return {
+        "page": page,
+        "size": size,
+        "total": total,
+        "orders": orders
+    }
+
+
+def restock_inventory_service(conn, repo, product_id: int, quantity: int):
+
+    # ---- Validation ----
+    if not isinstance(product_id, int) or not isinstance(quantity, int):
+        raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
+
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Restock quantity must be positive")
+
+    # ---- Ensure product exists ----
+    if not repo.product_exists(conn, product_id):
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # ---- Atomic update ----
+    affected = repo.restock_inventory(conn, product_id, quantity)
+
+    if affected == 0:
+        # inventory row missing — serious integrity issue
+        raise HTTPException(status_code=500, detail="Inventory record missing")
+
+    return {
+        "status": "inventory_restocked",
+        "product_id": product_id,
+        "added_quantity": quantity
+    }
+
+def update_product_price_service(conn, repo, product_id: int, new_price):
+
+    # ---- Validation ----
+    if not isinstance(new_price, (int, float)):
+        raise HTTPException(status_code=400, detail="Price must be numeric")
+
+    if new_price <= 0:
+        raise HTTPException(status_code=400, detail="Price must be greater than zero")
+
+    # ---- Check product exists ----
+    product = repo.get_product_by_id(conn, product_id)
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # ---- Update ----
+    affected = repo.update_product_price(conn, product_id, new_price)
+
+    if affected == 0:
+        raise HTTPException(status_code=500, detail="Product update failed")
+
+    # ---- Return updated product ----
+    updated = repo.get_product_by_id(conn, product_id)
+
+    return {
+        "id": updated[0],
+        "name": updated[1],
+        "price": float(updated[2]),
+        "category": updated[3],
+        "created_at": updated[4]
+    }
+def delete_product_service(conn, repo, product_id: int):
+
+    # ---- Existence check ----
+    if not repo.product_exists(conn, product_id):
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    try:
+        repo.delete_product(conn, product_id)
+
+    except pyodbc.IntegrityError:
+        # FK constraint from orders table
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete product with existing orders"
+        )
+
+    return {
+        "status": "deleted",
+        "product_id": product_id
+    }
+
+def create_playwright_service(conn, repo, name: str, skill: str):
+    if not name or not skill:
+        raise HTTPException(status_code=400, detail="name and skill are required")
+
+    repo.create_playwright(conn, name, skill)
+
+    return {"status": "created"}
+
+def get_playwrights_service(conn, repo):
+    rows = repo.get_playwrights(conn)
+
+    return [
+        {"id": r[0], "name": r[1], "skill": r[2]}
+        for r in rows
+    ]
