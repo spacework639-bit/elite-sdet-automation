@@ -1,8 +1,24 @@
 from fastapi import HTTPException
 from backend.domain.transitions import validate_transition
 import pyodbc
+import logging
+logger = logging.getLogger(__name__)
 
-
+def retry_on_deadlock(retries=2, delay=0.1):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except pyodbc.Error as e:
+                    if "1205" in str(e) and attempt < retries - 1:
+                        logger.warning("Deadlock detected. Retrying attempt %s", attempt + 1)
+                        time.sleep(delay)
+                        continue
+                    raise
+        return wrapper
+    return decorator
+@retry_on_deadlock(retries=2)
 def update_order_status(conn, repo, order_id: int, new_status: str, restore_inventory: bool = False):
     try:
         # ---- Lock row and fetch data ----
@@ -54,13 +70,21 @@ def update_order_status(conn, repo, order_id: int, new_status: str, restore_inve
     except Exception:
         raise HTTPException(status_code=500, detail="Order status update failed")
 
-
+@retry_on_deadlock(retries=2)
 def create_order_service(conn, repo, payload: dict, idempotency_key: str):
     product_id = payload.get("product_id")
     quantity = payload.get("quantity")
     user_id = payload.get("user_id", 91)
     vendor_id = payload.get("vendor_id", 1)
 
+    logger = logging.getLogger(__name__)
+
+    logger.info(
+    "Creating order | product_id=%s | quantity=%s | idempotency_key=%s",
+    product_id,
+    quantity,
+    idempotency_key
+    )
     # ---- Validation ----
     if not isinstance(product_id, int) or not isinstance(quantity, int):
         raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
@@ -81,6 +105,7 @@ def create_order_service(conn, repo, payload: dict, idempotency_key: str):
                 "order_id": existing_order[0],
                 "total_amount": float(existing_order[1])
             }
+    
 
         # ---- Fetch Product Price ----
         product = repo.get_product_price(conn, product_id)
@@ -106,9 +131,14 @@ def create_order_service(conn, repo, payload: dict, idempotency_key: str):
             product_id,
             quantity,
             total_amount,
-            "pending",
+            "pending",  
             idempotency_key
         )
+        logger.info(
+        "Order created successfully | order_id=%s | total_amount=%s",
+        order_id,
+        total_amount
+        ) 
 
         return {
             "status": "order_created",

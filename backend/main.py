@@ -9,7 +9,11 @@ from backend.schemas.order_schema import CreateOrderRequest
 from fastapi import status
 from backend.repositories.order_repository import OrderRepository
 from backend.services.order_service import get_products_service,get_order_service,restock_inventory_service,update_product_price_service,delete_product_service, create_playwright_service, get_playwrights_service
+from backend.logging_config import setup_logging
+import logging
 
+setup_logging()
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
