@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>My Orders</title>
+
+<style>
+
+body{
+ font-family:Arial;
+ margin:40px;
+ background:#f5f5f5;
+}
+
+.order{
+ background:white;
+ padding:20px;
+ margin-bottom:20px;
+ border-radius:8px;
+ box-shadow:0 2px 6px rgba(0,0,0,0.1);
+}
+
+h1{
+ margin-bottom:30px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>My Orders</h1>
+
+<div id="orders"></div>
+
+<script>
+
+function getStatusColor(status){
+
+ if(status === "pending") return "orange"
+ if(status === "confirmed") return "blue"
+ if(status === "completed") return "green"
+ if(status === "cancelled") return "red"
+
+ return "black"
+}
+
+async function loadOrders(){
+
+ const res = await fetch("http://localhost:8000/orders")
+ const data = await res.json()
+
+ const allOrders = data.orders
+
+ // fetch products
+ const productsRes = await fetch("http://localhost:8000/products")
+ const products = await productsRes.json()
+
+ const productMap = {}
+
+ products.forEach(p => {
+   productMap[p.id] = p.name
+ })
+
+ const userId = Number(localStorage.getItem("user_id"))
+
+ const orders = allOrders.filter(o => Number(o.user_id) === userId)
+
+ const container = document.getElementById("orders")
+ container.innerHTML = ""
+
+ if(orders.length === 0){
+   container.innerHTML = "<p style='color:gray'>You haven't placed any orders yet.</p>"
+   return
+ }
+
+ orders.forEach(o => {
+
+   const div = document.createElement("div")
+   div.className = "order"
+
+   div.innerHTML = `
+     <p><b>Order ID:</b> ${o.order_id}</p>
+
+     <p><b>Product:</b> ${productMap[o.product_id] || "Unknown"}</p>
+
+     <p>
+       <b>Status:</b> 
+       <span style="color:${getStatusColor(o.status)}; font-weight:bold;">
+         ${o.status}
+       </span>
+     </p>
+
+     <p><b>Amount:</b> ₹${o.total_amount}</p>
+   `
+
+   container.appendChild(div)
+
+ })
+}
+
+loadOrders()
+
+</script>
+
+</body>
+
+</html>

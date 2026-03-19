@@ -122,7 +122,7 @@ class OrderRepository:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, name, price, category
+            SELECT id, name, price, category,image_url
             FROM products
             """
         )
@@ -196,7 +196,7 @@ class OrderRepository:
     def get_product_by_id(self, conn, product_id: int):
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, name, price, category, created_at FROM products WHERE id = ?",
+            "SELECT id, name, price, category,image_url, created_at FROM products WHERE id = ?",
             (product_id,)
         )
         return cursor.fetchone()

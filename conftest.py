@@ -6,6 +6,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import logging
 from core.failure_types import FailureType, Severity
+import uuid
 
 load_dotenv()
 
@@ -15,6 +16,18 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
+@pytest.fixture
+def test_user(db_connection):
+    cursor = db_connection.cursor()
+    cursor.execute("""
+        INSERT INTO users_elite (email, password_hash)
+        OUTPUT INSERTED.id
+        VALUES (?, ?)
+    """, (f"user_{uuid.uuid4()}@mail.com", "hashed_pw"))
+    
+    user_id = cursor.fetchone()[0]
+    db_connection.commit()
+    return user_id
 def classify_failure(rep):
     if rep.failed:
         longrepr = str(rep.longrepr)

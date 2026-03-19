@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Restock Inventory</title>
+</head>
+
+<body>
+
+<h2>Restock Inventory</h2>
+
+<label>Product ID</label>
+<input id="product_id">
+
+<br><br>
+
+<label>Quantity</label>
+<input id="quantity">
+
+<br><br>
+
+<button id="restock_btn" onclick="restock()">Restock</button>
+
+<p id="result"></p>
+
+<script>
+
+async function restock(){
+
+    const productId = document.getElementById("product_id").value
+    const quantity = document.getElementById("quantity").value
+
+    const response = await fetch("/inventory/restock", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            product_id: Number(productId),
+            quantity: Number(quantity)
+        })
+    })
+
+    const text = await response.text()
+
+    document.getElementById("result").innerText = text
+}
+
+</script>
+
+</body>
+</html>
