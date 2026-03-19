@@ -35,21 +35,24 @@ def test_get_product_success_schema(api_client, db_connection):
 
         # ---- Required Keys ----
         expected_keys = {
-            "product_id",
+            "id",
             "name",
             "price",
             "category",
-            "created_at"
+            "created_at",
+            "image_url" 
         }
 
         assert set(data.keys()) == expected_keys
 
         # ---- Type Validation ----
-        assert isinstance(data["product_id"], int)
+        assert isinstance(data["id"], int)
         assert isinstance(data["name"], str)
         assert isinstance(data["price"], float)
         assert isinstance(data["category"], str)
         assert isinstance(data["created_at"], str)
+        # NEW (since your API returns it)
+        assert isinstance(data["image_url"], (str, type(None)))
 
     finally:
         cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))

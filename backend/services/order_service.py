@@ -2,7 +2,59 @@ from fastapi import HTTPException
 from backend.domain.transitions import validate_transition
 import pyodbc
 import logging
+import uuid
+import time
+from backend.db import get_connection
+from backend.repositories.order_repository import OrderRepository
 logger = logging.getLogger(__name__)
+
+def create_order(user_id, product_id, quantity):
+
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        # 🔹 1. Validate product exists + get price
+        product = repo.get_product_price(conn, product_id)
+
+        if not product:
+            raise Exception("Product not found")
+
+        price = product[0]
+
+        # 🔹 2. Calculate derived values
+        total_amount = price * quantity
+        product_type = "default"   # OR fetch category if needed
+        idempotency_key = str(uuid.uuid4())
+
+        # 🔹 3. Deduct inventory
+        updated = repo.deduct_inventory(conn, product_id, quantity)
+        if updated == 0:
+            raise Exception("Insufficient stock")
+
+        # 🔹 4. Insert order
+        order_id = repo.insert_order(
+            conn,
+            user_id,
+            1,  # vendor_id (default seeded)
+            product_type,
+            product_id,
+            quantity,
+            total_amount,
+            "pending",
+            idempotency_key
+        )
+
+        conn.commit()
+        return {"order_id": order_id}
+
+    except Exception as e:
+        conn.rollback()
+        logger.error("Order creation failed: %s", str(e))
+        raise
+
+    finally:
+        conn.close()
 
 def retry_on_deadlock(retries=2, delay=0.1):
     def decorator(func):
@@ -29,7 +81,15 @@ def update_order_status(conn, repo, order_id: int, new_status: str, restore_inve
 
         product_id, quantity, current_status = row
 
-        # ---- Idempotent behavior ----
+        # ---- STRICT GUARD FOR RETURN FLOWS (CRITICAL FIX) ----
+        # prevent double return-request / return-received
+        if current_status == "return_requested" and new_status == "return_requested":
+            raise HTTPException(status_code=409, detail="Return already requested")
+
+        if current_status == "returned" and new_status == "returned":
+            raise HTTPException(status_code=409, detail="Return already processed")
+
+        # ---- Idempotent behavior (safe for other flows) ----
         if current_status == new_status:
             return {
                 "status": f"already_{new_status}",
@@ -69,7 +129,6 @@ def update_order_status(conn, repo, order_id: int, new_status: str, restore_inve
 
     except Exception:
         raise HTTPException(status_code=500, detail="Order status update failed")
-
 @retry_on_deadlock(retries=2)
 def create_order_service(conn, repo, payload: dict, idempotency_key: str):
     product_id = payload.get("product_id")
@@ -88,7 +147,8 @@ def create_order_service(conn, repo, payload: dict, idempotency_key: str):
     # ---- Validation ----
     if not isinstance(product_id, int) or not isinstance(quantity, int):
         raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
-
+    if not payload.get("user_id"):
+        raise HTTPException(status_code=400, detail="user_id is required")
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="quantity must be positive")
 
@@ -166,38 +226,11 @@ def get_products_service(conn, repo):
             "id": r[0],
             "name": r[1],
             "price": float(r[2]),
-            "category": r[3]
+            "category": r[3],
+            "image_url": r[4]
         }
         for r in rows
     ]
-def list_orders_service(conn, repo, page: int, size: int):
-    offset = (page - 1) * size
-
-    total = repo.get_orders_count(conn)
-    rows = repo.get_orders_paginated(conn, offset, size)
-
-    orders = [
-        {
-            "order_id": r[0],
-            "user_id": r[1],
-            "vendor_id": r[2],
-            "product_id": r[3],
-            "product_type": r[4],
-            "quantity": r[5],
-            "total_amount": float(r[6]),
-            "status": r[7],
-            "idempotency_key": r[8],
-            "created_at": r[9]
-        }
-        for r in rows
-    ]
-
-    return {
-        "page": page,
-        "size": size,
-        "total": total,
-        "orders": orders
-    }
 def get_order_service(conn, repo, order_id: int):
     row = repo.get_order_by_id(conn, order_id)
 
@@ -300,7 +333,9 @@ def update_product_price_service(conn, repo, product_id: int, new_price):
         "name": updated[1],
         "price": float(updated[2]),
         "category": updated[3],
-        "created_at": updated[4]
+        "image_url": updated[4],
+        "created_at": updated[5]
+        
     }
 def delete_product_service(conn, repo, product_id: int):
 

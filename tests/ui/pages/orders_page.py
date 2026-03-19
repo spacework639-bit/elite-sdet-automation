@@ -1,8 +1,6 @@
 import os
-from playwright.sync_api import expect
 
-
-# 🔥 Environment-driven base URL
+# Environment-driven base URL
 BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
@@ -11,54 +9,23 @@ class OrdersPage:
         self.page = page
 
     # ---------------------------------------------------------
-    # OPEN CANCEL ORDER ENDPOINT
+    # OPEN CANCEL ORDER PAGE (FRONTEND)
     # ---------------------------------------------------------
     def open_cancel_order_api(self):
-        self.page.goto(
-            f"{BASE_URL}/docs#/default/cancel_order_orders__order_id__cancel_post",
-            wait_until="domcontentloaded"
-        )
+        self.page.goto(f"{BASE_URL}/frontend/cancel_order.html")
 
-        expect(
-            self.page.locator(
-                "#operations-default-cancel_order_orders__order_id__cancel_post"
-            )
-        ).to_be_visible()
+        # wait until the UI element actually appears
+        order_input = self.page.locator("#order_id")
+
+        order_input.wait_for(state="visible")
 
     # ---------------------------------------------------------
-    # INTERNAL: GET CANCEL BLOCK
-    # ---------------------------------------------------------
-    def _get_cancel_block(self):
-        return self.page.locator(
-            "#operations-default-cancel_order_orders__order_id__cancel_post"
-        )
-
-    # ---------------------------------------------------------
-    # CANCEL ORDER VIA SWAGGER (SCOPED + NETWORK-DRIVEN)
+    # CANCEL ORDER VIA FRONTEND
     # ---------------------------------------------------------
     def cancel_order_via_swagger(self, order_id: int):
-        endpoint = self._get_cancel_block()
 
-        # Expand if collapsed
-        classes = endpoint.get_attribute("class") or ""
-        if "is-open" not in classes:
-            endpoint.locator(".opblock-summary").click()
+        self.page.fill("#order_id", str(order_id))
 
-        # Click "Try it out" if visible
-        try_button = endpoint.locator("button:has-text('Try it out')")
-        if try_button.count() > 0 and try_button.is_visible():
-            try_button.click()
-
-        # Locate parameter row safely
-        param_row = endpoint.locator("tr[data-param-name='order_id']")
-        expect(param_row).to_be_visible()
-
-        order_input = param_row.locator("input")
-        expect(order_input).to_be_visible()
-
-        order_input.fill(str(order_id))
-
-        # Wait for network response
         with self.page.expect_response(
             lambda response: (
                 f"/orders/{order_id}/cancel" in response.url
@@ -66,6 +33,6 @@ class OrdersPage:
             )
         ) as response_info:
 
-            endpoint.locator("button:has-text('Execute')").click()
+            self.page.click("#cancel_btn")
 
         return response_info.value

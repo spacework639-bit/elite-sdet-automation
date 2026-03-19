@@ -2,7 +2,7 @@ import time
 import pytest
 pytestmark = pytest.mark.integration
 @pytest.mark.e2e
-def test_cancel_order_success_restores_inventory(api_client, db_connection):
+def test_cancel_order_success_restores_inventory(api_client, db_connection,test_user):
     """
     Business Rule:
     - Cancelling a pending order must:
@@ -36,7 +36,7 @@ def test_cancel_order_success_restores_inventory(api_client, db_connection):
     # ---- Create order ----
     create_response = api_client.post(
         "/orders",
-        json={"product_id": product_id, "quantity": quantity},
+        json={"product_id": product_id, "quantity": quantity,"user_id": test_user,"vendor_id": 1},
         headers={"Idempotency-Key": f"cancel-test-{int(time.time()*1000)}"}
     )
 

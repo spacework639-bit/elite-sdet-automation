@@ -1,70 +1,35 @@
 import os
 from playwright.sync_api import expect
 
-
-# 🔥 Base URL from environment (Docker / CI / Local safe)
 BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
 class InventoryPage:
+
     def __init__(self, page):
         self.page = page
 
     # ---------------------------------------------------------
-    # OPEN RESTOCK ENDPOINT
+    # OPEN RESTOCK PAGE
     # ---------------------------------------------------------
     def open_restock_api(self):
-        self.page.goto(
-            f"{BASE_URL}/docs#/default/restock_inventory_inventory_restock_post",
-            wait_until="domcontentloaded"
-        )
 
-        expect(
-            self.page.locator(
-                "#operations-default-restock_inventory_inventory_restock_post"
-            )
-        ).to_be_visible()
+        self.page.goto(f"{BASE_URL}/frontend/restock_inventory.html")
+
+        expect(self.page.locator("#product_id")).to_be_visible()
 
     # ---------------------------------------------------------
-    # INTERNAL: GET RESTOCK BLOCK
-    # ---------------------------------------------------------
-    def _get_restock_block(self):
-        return self.page.locator(
-            "#operations-default-restock_inventory_inventory_restock_post"
-        )
-
-    # ---------------------------------------------------------
-    # RESTOCK VIA SWAGGER (NETWORK-DRIVEN)
+    # RESTOCK INVENTORY VIA FRONTEND
     # ---------------------------------------------------------
     def restock_via_swagger(self, product_id: int, quantity: int):
-        endpoint = self._get_restock_block()
 
-        # Expand if collapsed
-        classes = endpoint.get_attribute("class") or ""
-        if "is-open" not in classes:
-            endpoint.locator(".opblock-summary").click()
+        self.page.fill("#product_id", str(product_id))
+        self.page.fill("#quantity", str(quantity))
 
-        # Click Try it out if visible
-        try_button = endpoint.locator("button:has-text('Try it out')")
-        if try_button.count() > 0 and try_button.is_visible():
-            try_button.click()
-
-        # Wait for textarea
-        request_body = endpoint.locator("textarea").first
-        expect(request_body).to_be_visible()
-
-        request_body.fill(
-            f'{{"product_id": {product_id}, "quantity": {quantity}}}'
-        )
-
-        # Network-driven execution
         with self.page.expect_response(
-            lambda response: (
-                "/inventory/restock" in response.url
-                and response.request.method == "POST"
-            )
+            lambda r: "/inventory" in r.url and r.request.method == "POST"
         ) as response_info:
 
-            endpoint.locator("button:has-text('Execute')").click()
+            self.page.click("#restock_btn")
 
         return response_info.value

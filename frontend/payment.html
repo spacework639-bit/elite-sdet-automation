@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>Payment</title>
+
+<style>
+
+body{
+ font-family:Arial;
+ margin:40px;
+}
+
+.container{
+ max-width:500px;
+}
+
+.total{
+ font-size:24px;
+ margin:20px 0;
+}
+
+.approve{
+ background:#4caf50;
+ color:white;
+ border:none;
+ padding:12px 25px;
+ cursor:pointer;
+ margin-right:10px;
+}
+
+.reject{
+ background:#d32f2f;
+ color:white;
+ border:none;
+ padding:12px 25px;
+ cursor:pointer;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Payment</h1>
+
+<div id="total"></div>
+
+<button class="approve" onclick="approvePayment()">
+Approve Payment
+</button>
+
+<button class="reject" onclick="rejectPayment()">
+Reject Payment
+</button>
+
+</div>
+
+<script>
+    async function approvePayment(){
+
+ const cart = JSON.parse(localStorage.getItem("cart")) || []
+ const userId = localStorage.getItem("user_id")
+
+ if(cart.length === 0){
+   alert("Cart empty")
+   return
+ }
+
+ const item = cart[0]
+
+ if(!item || !item.id){
+   alert("Product id missing in cart")
+   console.log("Cart item:", item)
+   return
+ }
+
+ const order = {
+   user_id: Number(userId),
+   vendor_id: 1,
+   product_type: "product",
+   product_id: Number(item.id),
+   quantity: Number(item.quantity || 1),
+   total_amount: Number(item.price),
+   status: "pending",
+   created_at: new Date().toISOString()
+ }
+
+ const res = await fetch("http://localhost:8000/orders",{
+
+   method:"POST",
+
+   headers:{
+     "Content-Type":"application/json",
+     "Idempotency-Key": Date.now().toString()
+   },
+
+   body: JSON.stringify(order)
+
+ })
+
+ const data = await res.json()
+
+ console.log("Server response:", data)
+
+ if(!res.ok){
+   alert("Order failed")
+   return
+ }
+
+ localStorage.removeItem("cart")
+
+ window.location="/frontend/order_status.html"
+
+}
+</script>
+</body>
+
+</html>

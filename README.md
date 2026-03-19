@@ -137,11 +137,19 @@ docker compose up --abort-on-container-exit --no-attach sqlserver --no-attach ap
 
 Expected result:
 
-56 passed, 2 xfailed  
+109 passed, 2 xfailed  
 
 No local SQL nothing installation required.
 
 ---
+## for local including coverage and report 
+python -m pytest -v -s
+python -m pytest --cov=backend --cov-report=html 
+python -m  pytest --cov=backend --cov-report=term-missing
+## to run in isolated environment
+python -m venv (give any name ex:uattest))
+uattest\scripts\activate
+
 
 ## Docker Architecture
 
