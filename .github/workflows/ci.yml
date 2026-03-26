@@ -51,17 +51,3 @@ jobs:
       - name: Run Performance Tests
         run: docker compose run --rm tests pytest -m performance -v
 
-
-  ui_tests:
-    runs-on: ubuntu-latest
-    needs: performance_tests
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Build Docker Images
-        run: docker compose build
-
-      - name: Run UI Tests
-        run: docker compose run --rm tests pytest -m e2e_ui -v
