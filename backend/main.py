@@ -8,14 +8,12 @@ from backend.repositories.order_repository import OrderRepository
 from backend.services.order_service import get_products_service,get_order_service,restock_inventory_service,update_product_price_service,delete_product_service, create_playwright_service, get_playwrights_service
 from backend.logging_config import setup_logging
 import logging
-from fastapi.staticfiles import StaticFiles
 from backend.schemas.auth_schema import SignupRequest, LoginRequest
 from backend.services.auth_service import signup_user, login_user
 setup_logging()
 logger = logging.getLogger(__name__)
 load_dotenv()
 app = FastAPI()
-app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 @app.post("/auth/signup")
 def signup(request: SignupRequest):
 
