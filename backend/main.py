@@ -1,209 +1,260 @@
 from dotenv import load_dotenv
-load_dotenv()
-
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Header
 from typing import Dict
 from .db import get_connection
-
-
+from fastapi import Query
+from backend.services.order_service import update_order_status, create_order_service,list_orders_service
+from backend.repositories.order_repository import OrderRepository
+from backend.services.order_service import get_products_service,get_order_service,restock_inventory_service,update_product_price_service,delete_product_service, create_playwright_service, get_playwrights_service
+from backend.logging_config import setup_logging
+import logging
+from backend.schemas.auth_schema import SignupRequest, LoginRequest
+from backend.services.auth_service import signup_user, login_user
+setup_logging()
+logger = logging.getLogger(__name__)
+load_dotenv()
 app = FastAPI()
+@app.post("/auth/signup")
+def signup(request: SignupRequest):
 
+    user_id = signup_user(request.email, request.password)
 
-# -------------------------------------------------
-# PLAYWRIGHTS APIs
-# -------------------------------------------------
+    return {"user_id": user_id}
+@app.post("/auth/login")
+def login(request: LoginRequest):
 
+    user_id = login_user(request.email, request.password)
+
+    return {"user_id": user_id}
+# -------------------------
+# Health Endpoints
+# -------------------------
+@app.get("/health")
+def liveness():
+    return {"status": "alive"}
+
+@app.get("/ready")
+def readiness():
+    return {"status": "ready"}
 @app.post("/playwrights")
 def create_playwright(payload: Dict):
-    name = payload.get("name")
-    skill = payload.get("skill")
-
-    if not name or not skill:
-        raise HTTPException(status_code=400, detail="name and skill are required")
-
     conn = get_connection()
+    repo = OrderRepository()
+
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO playwrights (name, skill) VALUES (?, ?)",
-            (name, skill)
+        result = create_playwright_service(
+            conn,
+            repo,
+            payload.get("name"),
+            payload.get("skill")
         )
         conn.commit()
-        return {"status": "created"}
+        return result
     except Exception:
         conn.rollback()
-        raise HTTPException(status_code=500, detail="Failed to create playwright")
+        raise
     finally:
         conn.close()
-
 
 @app.get("/playwrights")
 def get_playwrights():
     conn = get_connection()
+    repo = OrderRepository()
+
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, skill FROM playwrights")
-        rows = cursor.fetchall()
-        return [{"id": r[0], "name": r[1], "skill": r[2]} for r in rows]
+        return get_playwrights_service(conn, repo)
     finally:
         conn.close()
-
-
-# -------------------------------------------------
-# PRODUCTS API
-# -------------------------------------------------
-
-@app.get("/products")
-def get_products():
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, price, category FROM products")
-        rows = cursor.fetchall()
-        return [
-            {
-                "id": r[0],
-                "name": r[1],
-                "price": float(r[2]),
-                "category": r[3]
-            }
-            for r in rows
-        ]
-    finally:
-        conn.close()
-
-
 # -------------------------------------------------
 # ORDERS API (CORE BUSINESS LOGIC)
 # -------------------------------------------------
 
-@app.post("/orders")
-def create_order(
-    payload: Dict,
-    request: Request,
-    idempotency_key: str = Header(
-        ...,
-        alias="Idempotency-Key",
-        title="Idempotency-Key",
-        description="Unique key to ensure the request is idempotent (prevents duplicate orders if retried)",
-        example="idem-test-123"
-    )
-):
-    product_id = payload.get("product_id")
-    quantity = payload.get("quantity")
-    user_id = payload.get("user_id", 91)
-    vendor_id = payload.get("vendor_id", 1)
-
-    # ---------- VALIDATION ----------
-    if not isinstance(product_id, int) or not isinstance(quantity, int):
-        raise HTTPException(status_code=400, detail="product_id and quantity must be integers")
-
-    if quantity <= 0:
-        raise HTTPException(status_code=400, detail="quantity must be positive")
-
-    if not isinstance(user_id, int) or not isinstance(vendor_id, int):
-        raise HTTPException(status_code=400, detail="user_id and vendor_id must be integers")
-
-    # No need to check idempotency_key == None anymore — FastAPI already enforces it
-    # (because we used Header(...) with ... which means required)
-
+def execute_order_status(order_id: int, new_status: str, restore_inventory: bool = False):
     conn = get_connection()
+    repo = OrderRepository()
 
     try:
-        cursor = conn.cursor()
-        conn.autocommit = False
-
-        # ---------- PRODUCT ----------
-        # STEP 4: check existing order (PASTE HERE)
-        cursor.execute(
-            """
-            SELECT order_id, total_amount
-            FROM orders
-            WHERE idempotency_key = ?
-            """,
-            (idempotency_key,)
-        )
-        existing_order = cursor.fetchone()
-        if existing_order:
-            return {
-                "status": "order_already_created",
-                "order_id": existing_order[0],
-                "total_amount": float(existing_order[1])
-            }
-
-        # EXISTING CODE CONTINUES BELOW
-    
-        cursor.execute("SELECT price FROM products WHERE id = ?", (product_id,))
-        product = cursor.fetchone()
-
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-
-        if product[0] is None:
-            raise HTTPException(status_code=500, detail="Product price is NULL")
-
-        price = float(product[0])
-        total_amount = price * quantity
-
-        # ---------- INVENTORY (LOCK ROW) ----------
-        # ---------- ATOMIC INVENTORY UPDATE ----------
-        cursor.execute(
-        """
-        UPDATE inventory
-        SET stock = stock - ?
-        WHERE product_id = ?
-        AND stock >= ?
-        """,
-        (quantity, product_id, quantity)
-        )   
-        if cursor.rowcount == 0:
-            raise HTTPException(
-                status_code=409,
-                detail="Insufficient stock"
-    )
-
-
-        # ---------- INSERT ORDER (CORRECT SQL SERVER PATTERN) ----------
-        cursor.execute(
-            """
-            INSERT INTO orders (
-                user_id,
-                vendor_id,
-                product_type,
-                product_id,
-                total_amount,
-                status,
-                idempotency_key,
-                created_at
-            )
-            OUTPUT INSERTED.order_id
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-            (
-                user_id,
-                vendor_id,
-                "HERBAL",
-                product_id,
-                total_amount,
-                "pending",
-                idempotency_key
-            )
-        )
-
-        order_id = cursor.fetchone()[0]
+        result = update_order_status(conn, repo, order_id, new_status, restore_inventory)
         conn.commit()
-
-        return {
-            "status": "order_created",
-            "order_id": int(order_id),
-            "total_amount": total_amount
-        }
-
-    except HTTPException:
+        return result
+    except:
         conn.rollback()
         raise
+    finally:
+        conn.close()
+
+@app.post("/orders/{order_id}/confirm")
+def confirm_order(order_id: int):
+    return execute_order_status(order_id, "confirmed")
+
+@app.post("/orders/{order_id}/return-request")
+def request_return(order_id: int):
+    return execute_order_status(order_id, "return_requested")
+
+@app.post("/orders/{order_id}/return-received")
+def receive_return(order_id: int):
+    return execute_order_status(order_id, "returned", restore_inventory=True)
+
+@app.post("/orders/{order_id}/refund")
+def refund_order(order_id: int):
+    return execute_order_status(order_id, "refunded")
+
+@app.post("/orders/{order_id}/cancel")
+def cancel_order(order_id: int):
+    return execute_order_status(order_id, "cancelled", restore_inventory=True)
+
+@app.post("/orders/{order_id}/ship")
+def ship_order(order_id: int):
+    return execute_order_status(order_id, "shipped")
+
+@app.post("/orders/{order_id}/complete")
+def complete_order(order_id: int):
+    return execute_order_status(order_id, "completed")    
+#--------------------------------------------------------------------------
+# PRODUCTS API
+# -------------------------------------------------
+@app.get("/products")
+def get_products():
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        return get_products_service(conn, repo)
+    finally:
+        conn.close()
+    # -------------------------------------------------
+    # ORDERS API (CORE BUSINESS LOGIC)
+    # -------------------------------------------------
+@app.get("/orders/{order_id}")
+def get_order(order_id: int):
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        return get_order_service(conn, repo, order_id)
+    finally:
+        conn.close()
+
+@app.get("/orders")
+def list_orders(
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=100)
+):
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        return list_orders_service(conn, repo, page, size)
+    finally:
+        conn.close()
+
+@app.patch("/products/{product_id}")
+def update_product_price(product_id: int, payload: Dict):
+
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        result = update_product_price_service(
+            conn,
+            repo,
+            product_id,
+            payload.get("price")
+        )
+
+        conn.commit()
+        return result
+
     except Exception:
         conn.rollback()
-        raise HTTPException(status_code=500, detail="Order creation failed")
+        raise
+
+    finally:
+        conn.close()
+@app.delete("/products/{product_id}")
+def delete_product(product_id: int):
+
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        result = delete_product_service(conn, repo, product_id)
+        conn.commit()
+        return result
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+@app.post("/inventory/restock")
+def restock_inventory(payload: Dict):
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        result = restock_inventory_service(
+            conn,
+            repo,
+            payload.get("product_id"),
+            payload.get("quantity")
+        )
+
+        conn.commit()
+        return result
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+@app.get("/products/{product_id}")
+def get_product(product_id: int):
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        row = repo.get_product_by_id(conn, product_id)
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        return {
+            "id": row[0],
+            "name": row[1],
+            "price": float(row[2]),
+            "category": row[3],
+            "image_url": row[4],
+            "created_at": row[5]
+
+        }
+
+    finally:
+        conn.close()
+@app.post("/orders")
+def create_order(
+    payload: dict,
+    idempotency_key: str = Header(..., alias="Idempotency-Key")
+):
+
+    # 🔥 DEFAULTS (fix all E2E tests)
+    payload.setdefault("user_id", 1)
+    payload.setdefault("vendor_id", 1)
+
+    conn = get_connection()
+    repo = OrderRepository()
+
+    try:
+        result = create_order_service(conn, repo, payload, idempotency_key)
+        conn.commit()
+        return result
+
+    except Exception as e:
+        conn.rollback()
+        raise e
+
     finally:
         conn.close()

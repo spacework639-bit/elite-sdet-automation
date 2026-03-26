@@ -1,51 +1,72 @@
 import os
 import pytest
 import pyodbc
+import requests   # ← ADD THIS
 from datetime import datetime
-from core.api_client import ApiClient
-import subprocess
-import time
-import requests
 from dotenv import load_dotenv
+import logging
+from core.failure_types import FailureType, Severity
+import uuid
 
 load_dotenv()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def start_backend():
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
-    port = os.getenv("APP_PORT", "8000")
+@pytest.fixture
+def test_user(db_connection):
+    cursor = db_connection.cursor()
+    cursor.execute("""
+        INSERT INTO users_elite (email, password_hash)
+        OUTPUT INSERTED.id
+        VALUES (?, ?)
+    """, (f"user_{uuid.uuid4()}@mail.com", "hashed_pw"))
+    
+    user_id = cursor.fetchone()[0]
+    db_connection.commit()
+    return user_id
+def classify_failure(rep):
+    if rep.failed:
+        longrepr = str(rep.longrepr)
 
-    process = subprocess.Popen(
-        [
-            "python", "-m", "uvicorn",
-            "backend.main:app",
-            "--host", "127.0.0.1",
-            "--port", port
-        ]
-    )
+        if "AssertionError" in longrepr:
+            return FailureType.VALIDATION, Severity.MEDIUM
 
-    # Wait for server to be ready
-    for _ in range(20):
-        try:
-            r = requests.get(f"http://127.0.0.1:{port}/openapi.json")
-            if r.status_code == 200:
-                print("Backend started successfully.")
-                break
-        except Exception:
-            pass
-        time.sleep(1)
-    else:
-        process.terminate()
-        raise RuntimeError("Backend did not start.")
+        if "409" in longrepr:
+            return FailureType.BUSINESS, Severity.HIGH
 
-    yield
+        if "CHECK constraint" in longrepr or "Integrity" in longrepr:
+            return FailureType.DATA, Severity.HIGH
 
-    # Teardown
-    process.terminate()
-    process.wait()
-    print("Backend stopped.")
+        if "Timeout" in longrepr:
+            return FailureType.SYSTEM, Severity.CRITICAL
 
+        return FailureType.SYSTEM, Severity.CRITICAL
+
+    return None, None
+
+
+@pytest.fixture(scope="session")
+def api_client():
+    base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+
+    class APIClient:
+        def post(self, path, **kwargs):
+            return requests.post(f"{base_url}{path}", **kwargs)
+
+        def get(self, path, **kwargs):
+            return requests.get(f"{base_url}{path}", **kwargs)
+
+        def patch(self, path, **kwargs):
+            return requests.patch(f"{base_url}{path}", **kwargs)
+
+        def delete(self, path, **kwargs):
+            return requests.delete(f"{base_url}{path}", **kwargs)
+
+    return APIClient()
 
 # -------------------------------------------------
 # DATABASE CONNECTION FIXTURE
@@ -63,25 +84,30 @@ def db_connection():
     assert password, "DB_PASSWORD not set"
 
     conn = pyodbc.connect(
-        "DRIVER={ODBC Driver 17 for SQL Server};"
+        "DRIVER={ODBC Driver 18 for SQL Server};"
         f"SERVER={server};"
         f"DATABASE={database};"
-        f"UID={username};"
+        f"UID={username};"  
         f"PWD={password};"
+        "Encrypt=yes;"
+        "TrustServerCertificate=yes;"
     )
+
+    # 🔎 TEMP DEBUG
+    cursor = conn.cursor()
+    cursor.execute("SELECT @@SERVERNAME")
+    print("\n[DB FIXTURE] Connected to:", cursor.fetchone()[0])
 
     conn.autocommit = False
     yield conn
     conn.rollback()
     conn.close()
 
-
 # -------------------------------------------------
 # API CLIENT FIXTURE
 # -------------------------------------------------
-@pytest.fixture(scope="session")
-def api_client():
-    return ApiClient("http://127.0.0.1:8000")
+
+
 
 
 # -------------------------------------------------
@@ -141,47 +167,11 @@ def test_product(db_connection):
     cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
     db_connection.commit()
 # -------------------------------------------------
-# PYTEST → EXCEL REPORT HOOK (CONNECTION)
+
 # -------------------------------------------------
-from core.excel_reporter import ExcelReporter
+# SCREENSHOT + REPORT HOOK
+# -------------------------------------------------
 
-reporter = ExcelReporter()
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
-    report = outcome.get_result()
-
-    # Only care about test execution phase
-    if report.when != "call":
-        return
-
-    # -------------------------
-    # EXCEL REPORTING
-    # -------------------------
-    failure_marker = item.get_closest_marker("failure")
-    status = "passed" if report.passed else "failed"
-
-    if failure_marker:
-        reporter.record(
-            test_name=item.name,
-            outcome=status,
-            failure_type=str(failure_marker.kwargs.get("type")),
-            severity=str(failure_marker.kwargs.get("severity")),
-            release_blocker=failure_marker.kwargs.get("release_blocker"),
-        )
-    else:
-        reporter.record(
-            test_name=item.name,
-            outcome=status,
-            failure_type=None,
-            severity=None,
-            release_blocker=False,
-        )
-
-    # -------------------------
-    # SCREENSHOT ON FAILURE
-    # -------------------------
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
@@ -189,20 +179,35 @@ def pytest_runtest_makereport(item, call):
 
     if call.when == "call":
         item.rep_call = rep
+        failure_type, severity = classify_failure(rep)
+
+        item.failure_type = failure_type
+        item.severity = severity
 
         page = item.funcargs.get("page")
 
-        if page and (rep.failed or hasattr(rep, "wasxfail")):
+        # Detect real failure OR expected failure
+        is_failed = rep.failed
+        is_xfailed = hasattr(rep, "wasxfail")
+
+        if page and (is_failed or is_xfailed):
 
             os.makedirs("reports/screenshots", exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+            status_tag = "FAILED" if is_failed else "XFAILED"
+
             screenshot_path = (
-                f"reports/screenshots/{item.name}_{timestamp}.png"
+                f"reports/screenshots/{item.name}_{status_tag}_{timestamp}.png"
             )
 
             page.screenshot(path=screenshot_path, full_page=True)
+
+            # Attach screenshot path to test item for Excel
+            item.screenshot_path = screenshot_path
+
+
 def pytest_sessionfinish(session, exitstatus):
-    from reports.excel_report import generate_report
+    from reporting.excel_report import generate_report
     generate_report(session)

@@ -1,0 +1,80 @@
+services:
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: elite_sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: ${DB_PASSWORD:-StrongPass@123}
+    ports:
+      - "14333:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+      - ./init.sql:/init.sql
+      - ./schema.sql:/schema.sql
+    command: >
+      bash -c "
+      /opt/mssql/bin/sqlservr &
+      echo 'Waiting for SQL Server to accept connections...';
+      for i in {1..30}; do
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -Q 'SELECT 1' && break;
+        sleep 2;
+      done;
+      echo 'Initializing database...';
+      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -i /init.sql;
+      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -d TravelXDB -i /schema.sql;
+      echo 'Database initialized successfully.';
+      wait
+      "
+    healthcheck:
+      test: >
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${DB_PASSWORD:-StrongPass@123} -C -Q "SELECT 1"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  api:
+    build: .
+    container_name: elite_api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      DB_SERVER: sqlserver
+      DB_PORT: 1433
+      DB_NAME: TravelXDB
+      DB_USER: sa
+      DB_PASSWORD: ${DB_PASSWORD:-StrongPass@123}
+    ports:
+      - "8000:8000"
+    command: >
+      uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  tests:
+    build: .
+    container_name: elite_tests
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://elite_api:8000
+      DB_SERVER: sqlserver
+      DB_PORT: 1433
+      DB_NAME: TravelXDB
+      DB_USER: sa
+      DB_PASSWORD: ${DB_PASSWORD:-StrongPass@123}
+    command: >
+      bash -c "
+      echo 'Running test suite...' &&
+      pytest -v -s --log-cli-level=INFO --maxfail=1 --disable-warnings
+      "
+
+volumes:
+  sql_data:

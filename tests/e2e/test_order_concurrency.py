@@ -1,6 +1,6 @@
 import pytest
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+pytestmark = pytest.mark.integration
 
 @pytest.mark.e2e
 @pytest.mark.concurrency
@@ -52,7 +52,7 @@ def test_concurrent_orders_single_stock(
     ]
 
     def place_order(h):
-        return api_client.post("/orders", payload, headers=h)
+        return api_client.post("/orders", json=payload, headers=h)
 
     # -------------------------------------------------
     # PARALLEL EXECUTION

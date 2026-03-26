@@ -1,0 +1,56 @@
+function Show-PrettyTree {
+    param (
+        [string]$path = ".",
+        [string]$prefix = ""
+    )
+
+    # ❌ Exclude junk
+    $excludeDirs = @(
+        "venv", "__pycache__", "marchtest", "htmlcov",
+        "21febtest", "1march", ".vscode",
+        ".ruff_cache", ".pytest_cache", ".coverage",
+        ".git", ".github"
+    )
+
+    # ✅ Allowed file types
+    $allowedExtensions = @(".py", ".yml", ".yaml", ".md", ".txt", ".sql", ".sh")
+
+    # ✅ Special files (no extension or must-include)
+    $allowedFiles = @(
+        "Dockerfile", "docker-compose.yml", ".gitignore",
+        "pytest.ini", "requirements.txt", "README.md"
+    )
+
+    $items = Get-ChildItem $path -Force | Where-Object {
+        ($excludeDirs -notcontains $_.Name) -and
+        $_.Name -notlike "__*" -and
+        (
+            $_.PSIsContainer -or
+            $allowedExtensions -contains $_.Extension -or
+            $allowedFiles -contains $_.Name
+        )
+    } | Sort-Object `
+        @{Expression = { -not $_.PSIsContainer }}, `
+        @{Expression = { $_.Name.ToLower() }}
+
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        $item = $items[$i]
+        $isLast = ($i -eq $items.Count - 1)
+
+        if ($isLast) {
+            Write-Output "$prefix└── $($item.Name)"
+            $newPrefix = "$prefix    "
+        } else {
+            Write-Output "$prefix├── $($item.Name)"
+            $newPrefix = "$prefix│   "
+        }
+
+        if ($item.PSIsContainer) {
+            Show-PrettyTree -path $item.FullName -prefix $newPrefix
+        }
+    }
+}
+
+# Run it
+Write-Output "."
+Show-PrettyTree

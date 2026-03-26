@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.integration
 def test_transaction_isolation(db_connection):
     cursor = db_connection.cursor()
 
