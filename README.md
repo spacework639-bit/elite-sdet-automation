@@ -1,5 +1,7 @@
 # Elite SDET Automation Platform
 
+
+
 A production-style backend system built with FastAPI and SQL Server, fully Dockerized, transaction-safe, concurrency-tested, and CI-enabled.
 
 This project demonstrates real-world backend engineering practices combined with enterprise-grade automation validation.
@@ -10,6 +12,8 @@ This project demonstrates real-world backend engineering practices combined with
 
 Elite SDET Automation Platform is a transactional order management API designed to validate:
 
+OrderFlow – Order Management System with Concurrency & Testing
+
 - Concurrency handling
 - Idempotency guarantees
 - Transaction integrity
@@ -18,7 +22,7 @@ Elite SDET Automation Platform is a transactional order management API designed 
 - State transitions
 - CI/CD automation
 - Dockerized database isolation
-- End-to-end + UI + performance testing
+- End-to-end + performance testing
 
 The system simulates production-like behavior under controlled automated validation.
 
@@ -50,10 +54,10 @@ SQL Server (Dockerized)
 Backend: FastAPI  
 Database: Microsoft SQL Server 2022 (Docker)  
 Driver: pyodbc + ODBC Driver 18  
-Testing: pytest (unit, integration, system, e2e, UI, performance)  
+Testing: pytest (unit, integration, system, e2e, performance)  
 UI Testing: Playwright  
 CI/CD: GitHub Actions  
-Containerization: Docker + Docker Compose  
+Containerization: Docker + Docker Compose 
 
 ---
 
@@ -104,8 +108,7 @@ This prevents:
 Unit Tests  
 Integration Tests  
 System Tests  
-End-to-End Tests  
-UI Tests (Swagger-driven)  
+End-to-End Tests 
 Performance Tests  
 
 ### Current Stable State
@@ -190,7 +193,6 @@ GitHub Actions automatically runs:
 - Unit Tests  
 - Integration + E2E Tests  
 - Performance Tests  
-- UI Tests  
 
 All executed through Docker Compose.
 

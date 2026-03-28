@@ -1,7 +1,10 @@
 import pytest
 from concurrent.futures import ThreadPoolExecutor
+import logging
 
 pytestmark = pytest.mark.integration
+
+
 @pytest.mark.e2e
 @pytest.mark.concurrency
 def test_concurrent_orders_observe(
@@ -11,17 +14,15 @@ def test_concurrent_orders_observe(
 ):
     """
     OBSERVATION TEST (NO ASSERTIONS)
-
-    Goal:
-    - Force stock = 1
-    - Fire two parallel order requests
-    - Observe race-condition behavior
     """
 
     product_id = test_product["product_id"]
 
+    # 🔥 LOG product
+    logging.info(f"[OBSERVE TEST] product_id={product_id}")
+
     # -------------------------------------------------
-    # FORCE BOUNDARY CONDITION (CRITICAL STEP)
+    # FORCE BOUNDARY CONDITION
     # -------------------------------------------------
     cursor = db_connection.cursor()
     cursor.execute(
@@ -40,10 +41,13 @@ def test_concurrent_orders_observe(
 
     def place_order(headers):
         response = api_client.post("/orders", json=payload, headers=headers)
-        print(
-            f"[{headers['Idempotency-Key']}] "
-            f"STATUS={response.status_code} BODY={response.json()}"
+
+        logging.info(
+            f"[OBSERVE] key={headers['Idempotency-Key']} "
+            f"status={response.status_code} "
+            f"body={response.json()}"
         )
+
         return response
 
     with ThreadPoolExecutor(max_workers=2) as executor:

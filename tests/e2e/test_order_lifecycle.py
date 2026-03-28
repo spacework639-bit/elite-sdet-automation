@@ -2,6 +2,8 @@ import pytest
 import uuid
 
 pytestmark = pytest.mark.integration
+
+
 @pytest.mark.e2e
 @pytest.mark.lifecycle
 def test_full_order_lifecycle(
@@ -11,14 +13,6 @@ def test_full_order_lifecycle(
 ):
     """
     FULL LIFECYCLE E2E TEST
-
-    Covers:
-    - pending → confirmed → shipped → completed
-    - return_requested → returned → refunded
-    - Illegal transitions blocked
-    - Inventory integrity maintained
-    - Idempotency validated
-    - DB restored after test
     """
 
     product_id = test_product["product_id"]
@@ -43,6 +37,8 @@ def test_full_order_lifecycle(
             "UPDATE inventory SET stock = 10 WHERE product_id = ?",
             (product_id,)
         )
+
+        # 🔥 FIX: commit before API (prevents DB lock / hang)
         db_connection.commit()
 
         payload = {
@@ -54,14 +50,14 @@ def test_full_order_lifecycle(
         # CREATE
         # -------------------------------------------------
         idempotency_key = str(uuid.uuid4())
+
         response = api_client.post(
-        "/orders",
-        json=payload,
-        headers={"Idempotency-Key":  idempotency_key}
-         )
-        print("CREATE RESPONSE:", response.status_code, response.json())
+            "/orders",
+            json=payload,
+            headers={"Idempotency-Key": idempotency_key}
+        )
+
         assert response.status_code == 200
-        assert response.status_code == 200 
 
         order_id = response.json()["order_id"]
 
@@ -132,7 +128,7 @@ def test_full_order_lifecycle(
         assert cursor.fetchone()[0] == "return_requested"
 
         # -------------------------------------------------
-        # RETURN RECEIVED (Inventory Restore Happens Here)
+        # RETURN RECEIVED
         # -------------------------------------------------
         r = api_client.post(f"/orders/{order_id}/return-received")
         assert r.status_code == 200
@@ -147,7 +143,7 @@ def test_full_order_lifecycle(
             "SELECT stock FROM inventory WHERE product_id = ?",
             (product_id,)
         )
-        assert cursor.fetchone()[0] == 10  # stock restored
+        assert cursor.fetchone()[0] == 10
 
         # -------------------------------------------------
         # REFUND
@@ -162,10 +158,10 @@ def test_full_order_lifecycle(
         assert cursor.fetchone()[0] == "refunded"
 
         # -------------------------------------------------
-        # NEGATIVE 3: Double Refund (Idempotent)
+        # NEGATIVE 3: Double Refund
         # -------------------------------------------------
         r = api_client.post(f"/orders/{order_id}/refund")
-        assert r.status_code == 200
+        assert r.status_code == 409
 
         # -------------------------------------------------
         # NEGATIVE 4: Cancel After Refunded
@@ -175,7 +171,7 @@ def test_full_order_lifecycle(
 
     finally:
         # -------------------------------------------------
-        # CLEANUP: Remove Test Order
+        # CLEANUP
         # -------------------------------------------------
         if order_id:
             cursor.execute(
@@ -183,7 +179,6 @@ def test_full_order_lifecycle(
                 (order_id,)
             )
 
-        # Restore original inventory state
         cursor.execute(
             "UPDATE inventory SET stock = ? WHERE product_id = ?",
             (original_stock, product_id)

@@ -2,7 +2,11 @@
 
 import pytest
 import uuid
+import logging
+
 pytestmark = pytest.mark.integration
+
+
 # ---------------------------------------------------------
 # 1️⃣ PRODUCT NOT FOUND
 # ---------------------------------------------------------
@@ -26,23 +30,23 @@ def test_delete_product_not_found(api_client):
 
 @pytest.mark.e2e
 def test_delete_product_with_existing_orders(api_client, db_connection):
-    """
-    Business Rule:
-    - Product cannot be deleted if orders exist
-    """
 
     cursor = db_connection.cursor()
 
     # ---- Create isolated product ----
+    product_name = f"Delete409_{uuid.uuid4()}"
+
     cursor.execute(
         """
         INSERT INTO products (name, price, category)
         OUTPUT INSERTED.id
         VALUES (?, ?, ?)
         """,
-        ("Delete409Product", 200.00, "Test")
+        (product_name, 200.00, "Test")
     )
     product_id = cursor.fetchone()[0]
+
+    logging.info(f"[DELETE TEST] product_id={product_id}")
 
     cursor.execute(
         "INSERT INTO inventory (product_id, stock) VALUES (?, ?)",
@@ -60,6 +64,8 @@ def test_delete_product_with_existing_orders(api_client, db_connection):
     assert create_response.status_code == 200
     order_id = create_response.json()["order_id"]
 
+    logging.info(f"[DELETE TEST] order_id={order_id}")
+
     try:
         # ---- Attempt delete ----
         delete_response = api_client.delete(f"/products/{product_id}")
@@ -70,6 +76,7 @@ def test_delete_product_with_existing_orders(api_client, db_connection):
     finally:
         # ---- Cleanup ----
         api_client.post(f"/orders/{order_id}/cancel")
+
         cursor.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
         cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
         cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
@@ -82,23 +89,23 @@ def test_delete_product_with_existing_orders(api_client, db_connection):
 
 @pytest.mark.e2e
 def test_delete_product_success(api_client, db_connection):
-    """
-    Business Rule:
-    - Product without orders should delete successfully
-    """
 
     cursor = db_connection.cursor()
 
     # ---- Create isolated product ----
+    product_name = f"TempDelete_{uuid.uuid4()}"
+
     cursor.execute(
         """
         INSERT INTO products (name, price, category)
         OUTPUT INSERTED.id
         VALUES (?, ?, ?)
         """,
-        ("TempDeleteProduct", 123.00, "Test")
+        (product_name, 123.00, "Test")
     )
     product_id = cursor.fetchone()[0]
+
+    logging.info(f"[DELETE TEST] product_id={product_id}")
 
     cursor.execute(
         "INSERT INTO inventory (product_id, stock) VALUES (?, ?)",
@@ -122,7 +129,7 @@ def test_delete_product_success(api_client, db_connection):
         assert cursor.fetchone() is None
 
     finally:
-        # Extra safety cleanup (in case test fails mid-way)
+        # ---- Safety cleanup ----
         cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
         cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
         db_connection.commit()

@@ -3,6 +3,7 @@
 import time
 import pytest
 import uuid
+import logging
 
 
 # =========================================================
@@ -14,95 +15,124 @@ def test_order_creation_sla(api_client, db_connection):
 
     cursor = db_connection.cursor()
 
-    # ---------------------------
-    # CREATE USER (ONCE)
-    # ---------------------------
-    signup = api_client.post("/auth/signup", json={
-        "email": f"sla_{uuid.uuid4()}@test.com",
-        "password": "secure123"
-    })
-    assert signup.status_code == 200
-    user_id = signup.json()["user_id"]
+    product_id = None
+    order_ids = []
+    user_id = None
 
-    # ---------------------------
-    # PICK PRODUCT WITH STOCK
-    # ---------------------------
-    cursor.execute("""
-        SELECT TOP 1 p.id
-        FROM products p
-        JOIN inventory i ON p.id = i.product_id
-        WHERE i.stock > 0
-        ORDER BY p.id
-    """)
-    row = cursor.fetchone()
-    assert row is not None, "No product with stock available"
+    try:
+        # ---------------------------
+        # CREATE PRODUCT (CONTROLLED)
+        # ---------------------------
+        product_name = f"SLA_{uuid.uuid4()}"
 
-    product_id = row[0]
+        cursor.execute("""
+            INSERT INTO products (name, price, category)
+            OUTPUT INSERTED.id
+            VALUES (?, ?, ?)
+        """, (product_name, 150.0, "PERF"))
 
-    # ---------------------------
-    # COLD START MEASUREMENT
-    # ---------------------------
-    cold_start_begin = time.perf_counter()
+        product_id = cursor.fetchone()[0]
 
-    cold_response = api_client.post(
-        "/orders",
-        json={
-            "user_id": user_id,
-            "product_id": product_id,   # ✅ FIXED
-            "quantity": 1
-        },
-        headers={"Idempotency-Key": str(uuid.uuid4())}
-    )
+        cursor.execute("""
+            INSERT INTO inventory (product_id, stock)
+            VALUES (?, ?)
+        """, (product_id, 20))  # enough for multiple calls
 
-    cold_start_end = time.perf_counter()
-    cold_duration_ms = (cold_start_end - cold_start_begin) * 1000
+        db_connection.commit()
 
-    print(f"\nOrder Creation Cold Start: {cold_duration_ms:.2f}ms")
-    print("ORDER RESPONSE:", cold_response.status_code, cold_response.json())
+        logging.info(f"[SLA TEST] product_id={product_id}")
 
-    assert cold_response.status_code == 200
+        # ---------------------------
+        # CREATE USER
+        # ---------------------------
+        signup = api_client.post("/auth/signup", json={
+            "email": f"sla_{uuid.uuid4()}@test.com",
+            "password": "secure123"
+        })
 
-    # Cleanup cold order
-    cold_order_id = cold_response.json()["order_id"]
-    api_client.post(f"/orders/{cold_order_id}/cancel")
+        assert signup.status_code == 200
+        user_id = signup.json()["user_id"]
 
-    # ---------------------------
-    # STEADY STATE MEASUREMENT
-    # ---------------------------
-    # Warm-up call
-    api_client.post(
-        "/orders",
-        json={
-            "user_id": user_id,
-            "product_id": product_id,   # ✅ FIXED
-            "quantity": 1
-        },
-        headers={"Idempotency-Key": str(uuid.uuid4())}
-    )
+        # ---------------------------
+        # COLD START
+        # ---------------------------
+        cold_start = time.perf_counter()
 
-    steady_start = time.perf_counter()
+        cold_response = api_client.post(
+            "/orders",
+            json={
+                "user_id": user_id,
+                "product_id": product_id,
+                "quantity": 1
+            },
+            headers={"Idempotency-Key": str(uuid.uuid4())}
+        )
 
-    steady_response = api_client.post(
-        "/orders",
-        json={
-            "user_id": user_id,
-            "product_id": product_id,   # ✅ FIXED
-            "quantity": 1
-        },
-        headers={"Idempotency-Key": str(uuid.uuid4())}
-    )
+        cold_end = time.perf_counter()
+        cold_ms = (cold_end - cold_start) * 1000
 
-    steady_end = time.perf_counter()
-    steady_duration_ms = (steady_end - steady_start) * 1000
+        print(f"\nOrder Cold Start: {cold_ms:.2f}ms")
+        assert cold_response.status_code == 200
 
-    print(f"Order Creation Steady State: {steady_duration_ms:.2f}ms")
+        cold_order_id = cold_response.json()["order_id"]
+        order_ids.append(cold_order_id)
 
-    assert steady_response.status_code == 200
-    assert steady_duration_ms < 2200, f"Steady SLA breached: {steady_duration_ms:.2f}ms"
+        # ---------------------------
+        # WARM-UP
+        # ---------------------------
+        warm = api_client.post(
+            "/orders",
+            json={
+                "user_id": user_id,
+                "product_id": product_id,
+                "quantity": 1
+            },
+            headers={"Idempotency-Key": str(uuid.uuid4())}
+        )
+        if warm.status_code == 200:
+            order_ids.append(warm.json()["order_id"])
 
-    # Cleanup steady order
-    steady_order_id = steady_response.json()["order_id"]
-    api_client.post(f"/orders/{steady_order_id}/cancel")
+        # ---------------------------
+        # STEADY STATE
+        # ---------------------------
+        steady_start = time.perf_counter()
+
+        steady_response = api_client.post(
+            "/orders",
+            json={
+                "user_id": user_id,
+                "product_id": product_id,
+                "quantity": 1
+            },
+            headers={"Idempotency-Key": str(uuid.uuid4())}
+        )
+
+        steady_end = time.perf_counter()
+        steady_ms = (steady_end - steady_start) * 1000
+
+        print(f"Order Steady State: {steady_ms:.2f}ms")
+
+        assert steady_response.status_code == 200
+        assert steady_ms < 2200, f"SLA breached: {steady_ms:.2f}ms"
+
+        order_ids.append(steady_response.json()["order_id"])
+
+    finally:
+        # ---------------------------
+        # CLEANUP (CRITICAL)
+        # ---------------------------
+        for oid in order_ids:
+            try:
+                api_client.post(f"/orders/{oid}/cancel")
+            except Exception:
+                pass
+
+        if product_id:
+            cursor.execute("DELETE FROM orders WHERE product_id = ?", (product_id,))
+            cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+            cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+
+        db_connection.commit()
 
 
 # =========================================================
@@ -110,34 +140,55 @@ def test_order_creation_sla(api_client, db_connection):
 # =========================================================
 
 @pytest.mark.performance
-def test_get_product_sla(api_client):
+def test_get_product_sla(api_client, db_connection):
 
-    # ---------------------------
-    # COLD START
-    # ---------------------------
-    cold_start = time.perf_counter()
-    cold_response = api_client.get("/products/1")
-    cold_end = time.perf_counter()
+    cursor = db_connection.cursor()
+    product_id = None
 
-    cold_duration_ms = (cold_end - cold_start) * 1000
+    try:
+        # ---------------------------
+        # CREATE PRODUCT
+        # ---------------------------
+        cursor.execute("""
+            INSERT INTO products (name, price, category)
+            OUTPUT INSERTED.id
+            VALUES (?, ?, ?)
+        """, (f"SLA_GET_{uuid.uuid4()}", 100.0, "PERF"))
 
-    print(f"\nGET Product Cold Start: {cold_duration_ms:.2f}ms")
+        product_id = cursor.fetchone()[0]
+        db_connection.commit()
 
-    assert cold_response.status_code == 200
+        # ---------------------------
+        # COLD START
+        # ---------------------------
+        cold_start = time.perf_counter()
+        cold_response = api_client.get(f"/products/{product_id}")
+        cold_end = time.perf_counter()
 
-    # ---------------------------
-    # STEADY STATE
-    # ---------------------------
-    # Warm-up call
-    api_client.get("/products/1")
+        cold_ms = (cold_end - cold_start) * 1000
+        print(f"\nGET Cold: {cold_ms:.2f}ms")
 
-    steady_start = time.perf_counter()
-    steady_response = api_client.get("/products/1")
-    steady_end = time.perf_counter()
+        assert cold_response.status_code == 200
 
-    steady_duration_ms = (steady_end - steady_start) * 1000
+        # ---------------------------
+        # WARM-UP
+        # ---------------------------
+        api_client.get(f"/products/{product_id}")
 
-    print(f"GET Product Steady State: {steady_duration_ms:.2f}ms")
+        # ---------------------------
+        # STEADY STATE
+        # ---------------------------
+        steady_start = time.perf_counter()
+        steady_response = api_client.get(f"/products/{product_id}")
+        steady_end = time.perf_counter()
 
-    assert steady_response.status_code == 200   
-    assert steady_duration_ms < 2200, f"Steady SLA breached: {steady_duration_ms:.2f}ms"
+        steady_ms = (steady_end - steady_start) * 1000
+        print(f"GET Steady: {steady_ms:.2f}ms")
+
+        assert steady_response.status_code == 200
+        assert steady_ms < 2200, f"SLA breached: {steady_ms:.2f}ms"
+
+    finally:
+        if product_id:
+            cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+            db_connection.commit()

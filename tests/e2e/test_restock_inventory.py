@@ -1,8 +1,11 @@
 # tests/e2e/test_restock_inventory.py
 import pytest
 import logging
+import uuid
 
 pytestmark = pytest.mark.integration
+
+
 # ---------------------------------------------------------
 # 1️⃣ SUCCESS – STOCK INCREASES
 # ---------------------------------------------------------
@@ -16,17 +19,22 @@ def test_restock_inventory_success(api_client, db_connection):
 
     cursor = db_connection.cursor()
 
-    # ---- Pick product ----
-    cursor.execute("""
-        SELECT TOP 1 p.id
-        FROM products p
-        JOIN inventory i ON p.id = i.product_id
-        ORDER BY p.id
-    """)
-    row = cursor.fetchone()
-    assert row is not None, "No product found"
+    # 🔥 FIX: create isolated product (no shared data)
+    product_name = f"E2E_Product_{uuid.uuid4()}"
 
-    product_id = row[0]
+    cursor.execute("""
+        INSERT INTO products (name, price, category)
+        OUTPUT INSERTED.id
+        VALUES (?, ?, ?)
+    """, (product_name, 100.0, "HERBAL"))
+
+    product_id = cursor.fetchone()[0]
+    logging.info(f"product id: {product_id}")
+
+    cursor.execute("""
+        INSERT INTO inventory (product_id, stock)
+        VALUES (?, ?)
+    """, (product_id, 10))
 
     # ---- Save original stock ----
     cursor.execute(
@@ -34,9 +42,13 @@ def test_restock_inventory_success(api_client, db_connection):
         (product_id,)
     )
     original_stock = cursor.fetchone()[0]
-    logging.info(f"Stock after order: {original_stock}")
+
+    logging.info(f"Stock before restock: {original_stock}")
 
     restock_qty = 5
+
+    # 🔥 FIX: commit before API (avoid locks)
+    db_connection.commit()
 
     try:
         # ---- ACT ----
@@ -54,16 +66,15 @@ def test_restock_inventory_success(api_client, db_connection):
             (product_id,)
         )
         updated_stock = cursor.fetchone()[0]
-        logging.info(f"Stock after order: {updated_stock}")
+
+        logging.info(f"Stock after restock: {updated_stock}")
 
         assert updated_stock == original_stock + restock_qty
 
     finally:
-        # ---- RESTORE DB ----
-        cursor.execute(
-            "UPDATE inventory SET stock = ? WHERE product_id = ?",
-            (original_stock, product_id)
-        )
+        # ---- CLEANUP ----
+        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
         db_connection.commit()
 
 
