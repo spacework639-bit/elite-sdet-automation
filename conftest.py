@@ -26,7 +26,6 @@ def test_user(db_connection):
     """, (f"user_{uuid.uuid4()}@mail.com", "hashed_pw"))
     
     user_id = cursor.fetchone()[0]
-    db_connection.commit()
     return user_id
 def classify_failure(rep):
     if rep.failed:

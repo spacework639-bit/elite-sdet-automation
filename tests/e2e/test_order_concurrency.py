@@ -1,6 +1,9 @@
 import pytest
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+
 pytestmark = pytest.mark.integration
+
 
 @pytest.mark.e2e
 @pytest.mark.concurrency
@@ -16,20 +19,12 @@ def test_concurrent_orders_single_stock(
 ):
     """
     FINAL CONCURRENCY TEST
-
-    Scenario:
-    - Stock forced to 1
-    - Two parallel order requests
-    - Different Idempotency-Keys
-
-    Expected:
-    - 1 success (201)
-    - 1 failure (409)
-    - Exactly 1 order in DB
-    - Inventory ends at 0
     """
 
     product_id = test_product["product_id"]
+
+    # 🔥 LOG product
+    logging.info(f"[CONCURRENCY TEST] product_id={product_id}")
 
     # -------------------------------------------------
     # FORCE BOUNDARY CONDITION
@@ -52,7 +47,10 @@ def test_concurrent_orders_single_stock(
     ]
 
     def place_order(h):
-        return api_client.post("/orders", json=payload, headers=h)
+        logging.info(f"[THREAD] placing order with key={h['Idempotency-Key']}")
+        response = api_client.post("/orders", json=payload, headers=h)
+        logging.info(f"[THREAD] response={response.status_code}")
+        return response
 
     # -------------------------------------------------
     # PARALLEL EXECUTION
@@ -64,6 +62,8 @@ def test_concurrent_orders_single_stock(
             responses.append(future.result())
 
     status_codes = [r.status_code for r in responses]
+
+    logging.info(f"[RESULT] status_codes={status_codes}")
 
     # -------------------------------------------------
     # ASSERT API BEHAVIOR
@@ -79,6 +79,9 @@ def test_concurrent_orders_single_stock(
         (product_id,)
     )
     order_count = cursor.fetchone()[0]
+
+    logging.info(f"[DB] order_count={order_count}")
+
     assert order_count == 1, f"Expected 1 order in DB, found {order_count}"
 
     cursor.execute(
@@ -86,4 +89,7 @@ def test_concurrent_orders_single_stock(
         (product_id,)
     )
     stock = cursor.fetchone()[0]
+
+    logging.info(f"[DB] final_stock={stock}")
+
     assert stock == 0, f"Expected stock=0, found {stock}"

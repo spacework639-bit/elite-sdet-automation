@@ -89,6 +89,13 @@ def update_order_status(conn, repo, order_id: int, new_status: str, restore_inve
         if current_status == "returned" and new_status == "returned":
             raise HTTPException(status_code=409, detail="Return already processed")
 
+        if current_status == "refunded" and new_status == "refunded":
+            raise HTTPException(status_code=409, detail="refund already processed")
+
+
+        # ---- STRICT GUARD FOR CANCEL (FIX) ----
+        if current_status == "cancelled" and new_status == "cancelled":
+            raise HTTPException(status_code=409, detail="Order already cancelled")
         # ---- Idempotent behavior (safe for other flows) ----
         if current_status == new_status:
             return {

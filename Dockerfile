@@ -36,12 +36,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # -------------------------------------------------
-# Install Playwright properly (NO manual deps)
-# -------------------------------------------------
-RUN pip install playwright \
-    && playwright install --with-deps
-
-# -------------------------------------------------
 # Copy project
 # -------------------------------------------------
 COPY . .

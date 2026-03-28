@@ -1,15 +1,16 @@
-# tests/e2e/test_return_negative.py
-
 import pytest
 import uuid
+import logging
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.integration
 
 
 # =========================================================
 # 1️⃣ DOUBLE RETURN REQUEST SHOULD FAIL
 # =========================================================
 def test_double_return_request_fails(api_client, db_connection):
+
+    cursor = db_connection.cursor()
 
     # ---------------------------
     # create user
@@ -21,57 +22,75 @@ def test_double_return_request_fails(api_client, db_connection):
     login = api_client.post("/auth/login", json={"email": email, "password": password})
     user_id = login.json()["user_id"]
 
+    logging.info(f"[RETURN NEG] user_id={user_id}")
+
     # ---------------------------
-    # pick product
+    # 🔥 isolated product
     # ---------------------------
-    cursor = db_connection.cursor()
+    product_name = f"E2E_Product_{uuid.uuid4()}"
+
     cursor.execute("""
-        SELECT TOP 1 p.id
-        FROM products p
-        JOIN inventory i ON p.id = i.product_id
-        WHERE i.stock >= 2
-    """)
+        INSERT INTO products (name, price, category)
+        OUTPUT INSERTED.id
+        VALUES (?, ?, ?)
+    """, (product_name, 100.0, "HERBAL"))
+
     product_id = cursor.fetchone()[0]
 
-    # ---------------------------
-    # create order
-    # ---------------------------
-    order = api_client.post(
-        "/orders",
-        json={
-            "user_id": user_id,
-            "product_id": product_id,
-            "quantity": 1
-        },
-        headers={"Idempotency-Key": str(uuid.uuid4())}
-    )
+    cursor.execute("""
+        INSERT INTO inventory (product_id, stock)
+        VALUES (?, ?)
+    """, (product_id, 5))
 
-    order_id = order.json()["order_id"]
+    logging.info(f"[RETURN NEG] product_id={product_id}")
 
-    # ---------------------------
-    # move to completed
-    # ---------------------------
-    api_client.post(f"/orders/{order_id}/confirm")
-    api_client.post(f"/orders/{order_id}/ship")
-    api_client.post(f"/orders/{order_id}/complete")
+    # 🔥 commit before API
+    db_connection.commit()
 
-    # ---------------------------
-    # first return request
-    # ---------------------------
-    api_client.post(f"/orders/{order_id}/return-request")
+    try:
+        # ---------------------------
+        # create order
+        # ---------------------------
+        order = api_client.post(
+            "/orders",
+            json={
+                "user_id": user_id,
+                "product_id": product_id,
+                "quantity": 1
+            },
+            headers={"Idempotency-Key": str(uuid.uuid4())}
+        )
 
-    # ---------------------------
-    # second return request (should fail)
-    # ---------------------------
-    res = api_client.post(f"/orders/{order_id}/return-request")
+        order_id = order.json()["order_id"]
 
-    assert res.status_code == 409
+        logging.info(f"[RETURN NEG] order_id={order_id}")
+
+        # lifecycle
+        api_client.post(f"/orders/{order_id}/confirm")
+        api_client.post(f"/orders/{order_id}/ship")
+        api_client.post(f"/orders/{order_id}/complete")
+
+        # first return request
+        api_client.post(f"/orders/{order_id}/return-request")
+
+        # second return request (should fail)
+        res = api_client.post(f"/orders/{order_id}/return-request")
+
+        assert res.status_code == 409
+
+    finally:
+        cursor.execute("DELETE FROM orders WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        db_connection.commit()
 
 
 # =========================================================
 # 2️⃣ RETURN RECEIVED WITHOUT REQUEST SHOULD FAIL
 # =========================================================
 def test_return_received_without_request_fails(api_client, db_connection):
+
+    cursor = db_connection.cursor()
 
     # ---------------------------
     # create user
@@ -83,46 +102,64 @@ def test_return_received_without_request_fails(api_client, db_connection):
     login = api_client.post("/auth/login", json={"email": email, "password": password})
     user_id = login.json()["user_id"]
 
+    logging.info(f"[RETURN NEG] user_id={user_id}")
+
     # ---------------------------
-    # pick product
+    # 🔥 isolated product
     # ---------------------------
-    cursor = db_connection.cursor()
+    product_name = f"E2E_Product_{uuid.uuid4()}"
+
     cursor.execute("""
-        SELECT TOP 1 p.id
-        FROM products p
-        JOIN inventory i ON p.id = i.product_id
-        WHERE i.stock >= 1
-    """)
+        INSERT INTO products (name, price, category)
+        OUTPUT INSERTED.id
+        VALUES (?, ?, ?)
+    """, (product_name, 100.0, "HERBAL"))
+
     product_id = cursor.fetchone()[0]
 
-    # ---------------------------
-    # create order
-    # ---------------------------
-    order = api_client.post(
-        "/orders",
-        json={
-            "user_id": user_id,
-            "product_id": product_id,
-            "quantity": 1
-        },
-        headers={"Idempotency-Key": str(uuid.uuid4())}
-    )
+    cursor.execute("""
+        INSERT INTO inventory (product_id, stock)
+        VALUES (?, ?)
+    """, (product_id, 5))
 
-    order_id = order.json()["order_id"]
+    logging.info(f"[RETURN NEG] product_id={product_id}")
 
-    # ---------------------------
-    # move to completed (no return-request)
-    # ---------------------------
-    api_client.post(f"/orders/{order_id}/confirm")
-    api_client.post(f"/orders/{order_id}/ship")
-    api_client.post(f"/orders/{order_id}/complete")
+    # 🔥 commit before API
+    db_connection.commit()
 
-    # ---------------------------
-    # directly return-received (should fail)
-    # ---------------------------
-    res = api_client.post(f"/orders/{order_id}/return-received")
+    try:
+        # ---------------------------
+        # create order
+        # ---------------------------
+        order = api_client.post(
+            "/orders",
+            json={
+                "user_id": user_id,
+                "product_id": product_id,
+                "quantity": 1
+            },
+            headers={"Idempotency-Key": str(uuid.uuid4())}
+        )
 
-    assert res.status_code == 409
+        order_id = order.json()["order_id"]
+
+        logging.info(f"[RETURN NEG] order_id={order_id}")
+
+        # lifecycle
+        api_client.post(f"/orders/{order_id}/confirm")
+        api_client.post(f"/orders/{order_id}/ship")
+        api_client.post(f"/orders/{order_id}/complete")
+
+        # directly return-received (should fail)
+        res = api_client.post(f"/orders/{order_id}/return-received")
+
+        assert res.status_code == 409
+
+    finally:
+        cursor.execute("DELETE FROM orders WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM inventory WHERE product_id = ?", (product_id,))
+        cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        db_connection.commit()
 
 
 # =========================================================
