@@ -145,17 +145,26 @@ Expected result:
 No local SQL nothing installation required.
 
 ---
-## for local including coverage and report 
+## for local setup including coverage and report 
+
+## to run in isolated environment
+## in terminal
+python -m venv (give any name ex:venv)
+python -m venv venv
+# To activate scriptt
+venv\scripts\activate
+
+## start backend
+python -m uvicorn backend.main:app
+
+## in terminal 2
+
+# To activate script
+venv\scripts\activate
+
 python -m pytest -v -s
 python -m pytest --cov=backend --cov-report=html 
 python -m  pytest --cov=backend --cov-report=term-missing
-## to run in isolated environment
-python -m venv (give any name ex:venv))
-
-# To activate scriptt
-
-
-venv\scripts\activate
 
 
 ## Docker Architecture
