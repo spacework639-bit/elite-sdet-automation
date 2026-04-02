@@ -1,6 +1,9 @@
 import pytest
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+
 pytestmark = pytest.mark.integration
+
 
 @pytest.mark.e2e
 @pytest.mark.concurrency
@@ -16,20 +19,12 @@ def test_concurrent_orders_stress(
 ):
     """
     STRESS CONCURRENCY TEST
-
-    Scenario:
-    - Stock = 5
-    - 10 parallel order requests
-    - Quantity = 1 per request
-
-    Expected:
-    - 5 successes (200)
-    - 5 failures (409)
-    - Exactly 5 orders in DB
-    - Inventory ends at 0
     """
 
     product_id = test_product["product_id"]
+
+    # 🔥 LOG product
+    logging.info(f"[STRESS TEST] product_id={product_id}")
 
     # -------------------------------------------------
     # FORCE STOCK = 5
@@ -52,7 +47,10 @@ def test_concurrent_orders_stress(
     ]
 
     def place_order(h):
-        return api_client.post("/orders", json=payload, headers=h)
+        logging.info(f"[THREAD] key={h['Idempotency-Key']} sending request")
+        response = api_client.post("/orders", json=payload, headers=h)
+        logging.info(f"[THREAD] key={h['Idempotency-Key']} status={response.status_code}")
+        return response
 
     # -------------------------------------------------
     # PARALLEL EXECUTION (10 REQUESTS)
@@ -64,6 +62,8 @@ def test_concurrent_orders_stress(
             responses.append(future.result())
 
     status_codes = [r.status_code for r in responses]
+
+    logging.info(f"[RESULT] status_codes={status_codes}")
 
     # -------------------------------------------------
     # ASSERT API RESULTS
@@ -79,6 +79,9 @@ def test_concurrent_orders_stress(
         (product_id,)
     )
     order_count = cursor.fetchone()[0]
+
+    logging.info(f"[DB] order_count={order_count}")
+
     assert order_count == 5, f"Expected 5 orders in DB, found {order_count}"
 
     cursor.execute(
@@ -86,4 +89,7 @@ def test_concurrent_orders_stress(
         (product_id,)
     )
     stock = cursor.fetchone()[0]
+
+    logging.info(f"[DB] final_stock={stock}")
+
     assert stock == 0, f"Expected stock=0, found {stock}"
