@@ -12,7 +12,7 @@ This project demonstrates real-world backend engineering practices combined with
 
 Elite SDET Automation Platform is a transactional order management API designed to validate:
 
-OrderFlow – Order Management System with Concurrency & Testing
+OrderFlowX: End-to-End E-commerce Testing Platform
 
 - Concurrency handling
 - Idempotency guarantees
@@ -150,8 +150,12 @@ python -m pytest -v -s
 python -m pytest --cov=backend --cov-report=html 
 python -m  pytest --cov=backend --cov-report=term-missing
 ## to run in isolated environment
-python -m venv (give any name ex:uattest))
-uattest\scripts\activate
+python -m venv (give any name ex:venv))
+
+# To activate scriptt
+
+
+venv\scripts\activate
 
 
 ## Docker Architecture
