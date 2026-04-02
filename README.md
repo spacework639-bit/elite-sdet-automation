@@ -152,7 +152,7 @@ python -m  pytest --cov=backend --cov-report=term-missing
 ## to run in isolated environment
 python -m venv (give any name ex:venv))
 
-# To activate
+# To activate scriptt
 
 
 venv\scripts\activate
